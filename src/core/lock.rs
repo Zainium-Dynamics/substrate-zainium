@@ -1,19 +1,17 @@
 //! Generates the `.zex.locked` companion artifact: the real, un-obfuscated
-//! source tree plus a single maintainer review slot.
+//! source tree a package was built from, plus its audit summary.
 //!
-//! ## Workflow (website-first)
+//! ## Workflow
 //!
 //! 1. `substrate pack` always emits `<name>.zex` **and** `<name>.zex.locked`.
-//! 2. Reviewer downloads `.zex.locked` from the website, extracts it
-//!    (`substrate unpack <file>.zex.locked -o <dir>`), and reads
-//!    `REVIEW.md` inside the tree.
-//! 3. Reviewer hits **Approve** on the website — one person, one decision.
-//!    No multi-slot / multi-reviewer ceremony.
+//! 2. Anyone reviewing the package (e.g. via the merge request that adds
+//!    its recipe) extracts it (`substrate unpack <file>.zex.locked -o
+//!    <dir>`) and reads `REVIEW.md` inside the tree.
 //!
 //! `.zex.locked` is never shipped to end users — installers only ever
-//! handle the compiled `.zex` binary. The locked file stays in the
-//! maintainer review pipeline so a reviewer can read real source (and the
-//! full security report) before signing off.
+//! handle the compiled `.zex` binary. There is no approval state embedded
+//! in it — review happens wherever the recipe/source lives (e.g. a GitLab
+//! merge request), not inside this file.
 //!
 //! ## What's inside (extracted layout)
 //!
@@ -51,43 +49,9 @@ use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Write};
 use std::path::Path;
 
-/// One reviewer, one approval — website Approve button is the gate.
-pub const REQUIRED_APPROVALS: usize = 1;
-
 /// Filename of the human review checklist embedded at the root of the
 /// locked source tarball (extracted next to `manifest.toml` / `payload/`).
 pub const REVIEW_MD_NAME: &str = "REVIEW.md";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ReviewStatus {
-    Pending,
-    Approved,
-    ChangesRequested,
-    Rejected,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MaintainerReview {
-    /// Always `1` under the single-reviewer model (kept for stable JSON).
-    pub slot: u8,
-    pub reviewer: Option<String>,
-    pub status: ReviewStatus,
-    pub notes: Option<String>,
-    pub reviewed_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl MaintainerReview {
-    fn empty() -> Self {
-        MaintainerReview {
-            slot: 1,
-            reviewer: None,
-            status: ReviewStatus::Pending,
-            notes: None,
-            reviewed_at: None,
-        }
-    }
-}
 
 /// The ledger-ready `[packages.<name>]` block — same shape `zex-server`
 /// merges into `zex_ledger.toml`/`syshub.toml`, deliberately carrying no
@@ -144,11 +108,11 @@ impl LedgerHeader {
 }
 
 /// Shape of `header.toml`, embedded inside `.zex.locked`'s tar —
-/// `[package.<name>]` = the same fields `zex-server` merges into the
-/// ledger on approval, keyed by package name so the table drops straight
-/// into a ledger file structurally. Deliberately just this — no schema /
-/// required_approvals / reviews / security_report (those stay in the JSON
-/// ZEXL prefix only; see `security.toml` for the audit report instead).
+/// `[package.<name>]` = the same fields that get merged into the ledger
+/// on publish, keyed by package name so the table drops straight into a
+/// ledger file structurally. Deliberately just this — no schema /
+/// security_report (those stay in the JSON ZEXL prefix only; see
+/// `security.toml` for the audit report instead).
 #[derive(Debug, Serialize)]
 struct HeaderTomlDoc {
     package: std::collections::BTreeMap<String, LedgerHeader>,
@@ -159,16 +123,13 @@ pub struct LockedManifest {
     pub schema: String,
     pub package_name: String,
     pub package_version: String,
-    pub required_approvals: usize,
     /// The full security report (layout, content, manifest integrity,
-    /// permission audit, rust/C audit, secrets) embedded so a maintainer
+    /// permission audit, rust/C audit, secrets) embedded so a reviewer
     /// can read it from the locked header without unpacking.
     pub security_report: SecurityReport,
-    /// What `zex-server` reads to merge into the ledger once this
-    /// package clears review — see [`LedgerHeader`].
+    /// What gets merged into the ledger once this package is published —
+    /// see [`LedgerHeader`].
     pub ledger_header: LedgerHeader,
-    /// Exactly one entry under the single-reviewer model.
-    pub reviews: Vec<MaintainerReview>,
 }
 
 impl LockedManifest {
@@ -179,71 +140,32 @@ impl LockedManifest {
         zex_size_bytes: u64,
     ) -> Self {
         LockedManifest {
-            // v3: single reviewer + REVIEW.md embedded inside the tar
-            // (no external `.zex.locked.review.md` sidecar).
-            schema: "zainium-locked-source-v3".to_string(),
+            schema: "zainium-locked-source-v4".to_string(),
             package_name: manifest.package.name.clone(),
             package_version: manifest.package.version.clone(),
-            required_approvals: REQUIRED_APPROVALS,
             security_report: report.clone(),
             ledger_header: LedgerHeader::from_manifest(manifest, zex_file, zex_size_bytes),
-            reviews: vec![MaintainerReview::empty()],
         }
     }
 
-    pub fn approvals_count(&self) -> usize {
-        self.reviews
-            .iter()
-            .filter(|r| r.status == ReviewStatus::Approved)
-            .count()
-    }
-
-    pub fn is_fully_approved(&self) -> bool {
-        self.approvals_count() >= self.required_approvals
-            && self
-                .reviews
-                .iter()
-                .all(|r| r.status != ReviewStatus::Rejected)
-    }
-
-    /// The single review entry (slot 1). Panics only if the vector was
-    /// corrupted — every constructor seeds exactly one entry.
-    pub fn primary_review(&self) -> &MaintainerReview {
-        self.reviews
-            .first()
-            .expect("LockedManifest always has exactly one review entry")
-    }
-
-    pub fn primary_review_mut(&mut self) -> &mut MaintainerReview {
-        self.reviews
-            .first_mut()
-            .expect("LockedManifest always has exactly one review entry")
-    }
-
-    /// Human-facing checklist embedded as `REVIEW.md` inside the locked
-    /// tarball. Machine status still lives in the JSON header (website
-    /// Approve rewrites that header only).
+    /// Human-facing audit summary embedded as `REVIEW.md` inside the
+    /// locked tarball — no approval state, this is read-only reference
+    /// material for whoever's reviewing the package's source (e.g. the
+    /// merge request that added its recipe).
     pub fn to_review_markdown(&self) -> String {
         let mut md = String::new();
         md.push_str(&format!(
-            "# Maintainer Review — {} {}\n\n",
+            "# Package Review — {} {}\n\n",
             self.package_name, self.package_version
         ));
-        md.push_str(&format!(
-            "Schema: `{}` · Required approvals: **{}/{}** (single reviewer)\n\n",
-            self.schema,
-            self.approvals_count(),
-            self.required_approvals
-        ));
+        md.push_str(&format!("Schema: `{}`\n\n", self.schema));
 
         md.push_str("## How to review\n\n");
-        md.push_str("1. Download this `.zex.locked` from the Zainium package website.\n");
-        md.push_str("2. Extract it (`substrate unpack <file.zex.locked> -o ./review-tree`).\n");
-        md.push_str("3. Read this `REVIEW.md` plus the source / `payload/` tree.\n");
-        md.push_str("4. On the website, press **Approve** (or request changes / reject).\n");
-        md.push_str("5. You do **not** need to re-upload this file after approving — the site records the decision against the package.\n\n");
+        md.push_str("1. Extract this `.zex.locked` (`substrate unpack <file.zex.locked> -o ./review-tree`).\n");
+        md.push_str("2. Read this `REVIEW.md` plus the source tree (`source/`, if present).\n");
+        md.push_str("3. Leave feedback wherever this package's source actually lives (e.g. the merge request that added it).\n\n");
 
-        md.push_str("## Ledger header (what zex-server merges on approval)\n\n");
+        md.push_str("## Ledger header (what gets published)\n\n");
         let h = &self.ledger_header;
         md.push_str(&format!("- `file`: `{}` ({} bytes)\n", h.file, h.size_bytes));
         if !h.description.is_empty() {
@@ -322,36 +244,12 @@ impl LockedManifest {
         md.push('\n');
 
         md.push_str("## Reviewer checklist\n\n");
-        md.push_str("Confirm each item before pressing **Approve** on the website:\n\n");
         md.push_str("- [ ] Source matches the automated audit summary above — no edits since scan.\n");
         md.push_str("- [ ] No undisclosed network calls, telemetry, or credential exfiltration in source.\n");
         md.push_str("- [ ] `unsafe` blocks (if any) are isolated to a reviewed module and are necessary.\n");
         md.push_str("- [ ] Build/install scripts do not escalate privileges beyond what the package declares.\n");
         md.push_str("- [ ] License and provenance of bundled/vendored code is clear.\n");
-        md.push_str("- [ ] Install map (`manifest.toml` `[install]`) lands files only under `/overlayer/`.\n\n");
-
-        let review = self.primary_review();
-        md.push_str("---\n\n## Review status (also stored in the locked JSON header)\n\n");
-        md.push_str(&format!(
-            "- Reviewer: {}\n",
-            review.reviewer.as_deref().unwrap_or("_unassigned_ — set by website on Approve_")
-        ));
-        md.push_str(&format!("- Status: `{:?}`\n", review.status));
-        md.push_str(&format!(
-            "- Reviewed at: {}\n",
-            review
-                .reviewed_at
-                .map(|t| t.to_rfc3339())
-                .unwrap_or_else(|| "_pending_".into())
-        ));
-        md.push_str(&format!(
-            "- Notes: {}\n\n",
-            review.notes.as_deref().unwrap_or("_none_")
-        ));
-
-        md.push_str(
-            "**Package ships to the Zainium repository only once this single review is `Approved` (and not `Rejected`).**\n",
-        );
+        md.push_str("- [ ] Install map (`manifest.toml` `[install]`) lands files only under `/overlayer/`.\n");
         md
     }
 }
@@ -389,9 +287,8 @@ pub fn write_locked(
 
     // header.toml: `[package.<name>]` = just the ledger-ready fields, keyed
     // by package name so it drops straight into a ledger file structurally.
-    // Deliberately NOT the full LockedManifest (no schema / required_approvals
-    // / reviews / security_report here) — those stay in the JSON ZEXL prefix
-    // only, which is what zex-server actually parses; this file is for a
+    // Deliberately NOT the full LockedManifest (no schema / security_report
+    // here) — those stay in the JSON ZEXL prefix only; this file is for a
     // human reviewer who already extracted the tree.
     let mut header_doc = std::collections::BTreeMap::new();
     header_doc.insert(manifest.package.name.clone(), locked_manifest.ledger_header.clone());

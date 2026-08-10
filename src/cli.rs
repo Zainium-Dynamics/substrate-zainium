@@ -12,7 +12,7 @@ pub struct Cli {
 pub enum Command {
     /// Create a secure .zex package from a directory.
     /// Always also emits `<out>.zex.locked` (real source + REVIEW.md +
-    /// header.toml + security.toml + receipt.toml, one reviewer slot).
+    /// header.toml + security.toml + receipt.toml).
     Pack {
         directory: PathBuf,
 
@@ -69,26 +69,6 @@ pub enum Command {
     /// Show detailed package information
     Inspect { file: PathBuf },
 
-    /// Record the single maintainer decision on a .zex.locked artifact.
-    /// Primary path is the website Approve button; this CLI exists for
-    /// local/offline use and for the same JSON-header rewrite the site does.
-    Review {
-        /// Path to the .zex.locked file
-        locked_file: PathBuf,
-
-        /// Reviewer identifier (e.g. "alice@zainium.org")
-        #[arg(long)]
-        reviewer: String,
-
-        /// Review decision
-        #[arg(long, value_enum)]
-        status: ReviewStatusArg,
-
-        /// Optional notes
-        #[arg(long, default_value = "")]
-        notes: String,
-    },
-
     /// Generate a standalone Ed25519 keypair and print both halves.
     /// NOT used by `pack` — every pack run generates and signs with its
     /// own fresh, ephemeral keypair internally and never persists it;
@@ -103,11 +83,4 @@ pub enum Command {
         #[arg(long, default_value_t = false)]
         force: bool,
     },
-}
-
-#[derive(clap::ValueEnum, Clone, Copy)]
-pub enum ReviewStatusArg {
-    Approved,
-    ChangesRequested,
-    Rejected,
 }

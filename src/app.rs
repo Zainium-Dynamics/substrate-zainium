@@ -1,9 +1,9 @@
 
 use clap::Parser;
-use crate::cli::{Cli, Command, ReviewStatusArg};
+use crate::cli::{Cli, Command};
 use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
-use crate::core::lock::{read_locked_manifest, ReviewStatus, REQUIRED_APPROVALS};
+use crate::core::lock::read_locked_manifest;
 use crate::core::{packer, unpacker, verifier};
 use crate::security::audit_common::ToolOutcome;
 use crate::security::signer::Signer128;
@@ -43,9 +43,6 @@ pub fn run(raw_args: Vec<String>) {
         Command::Verify { file } => cmd_unpack(file, None, true),
 
         Command::Inspect { file } => cmd_inspect(file),
-
-        Command::Review { locked_file, reviewer, status, notes } =>
-            cmd_review(locked_file, reviewer, status, notes),
 
         Command::Keygen { output, force } => cmd_keygen(output, force),
     };
@@ -195,8 +192,7 @@ fn cmd_pack(
 
     {
         let lp = &pack_result.locked_path;
-        display::kv("Locked artifact",
-            &format!("{} ({} approval slots)", lp.display(), REQUIRED_APPROVALS));
+        display::kv("Locked artifact", &lp.display().to_string());
         let md = lp.with_extension("locked.review.md");
         display::kv("Review checklist", &md.display().to_string());
     }
@@ -340,8 +336,6 @@ fn cmd_unpack_locked(
     display::title(&format!("Unpacking locked review artifact {}", file.display()));
     display::kv("Name",              &locked.package_name);
     display::kv("Version",           &locked.package_version);
-    display::kv("Required approvals", &locked.required_approvals.to_string());
-    display::kv("Reviews so far",     &locked.reviews.len().to_string());
 
     if verify_only {
         display::success("Locked header parsed OK.");
@@ -456,105 +450,15 @@ fn cmd_inspect(file: std::path::PathBuf) -> crate::error::Result<()> {
         std::path::PathBuf::from(p)
     };
     if locked_path.exists() {
-        display::step("Maintainer review status (.zex.locked)");
+        display::step("Review artifact (.zex.locked)");
         match read_locked_manifest(&locked_path) {
-            Ok(lm) => {
-                display::kv("Approvals",
-                    &format!("{}/{}", lm.approvals_count(), lm.required_approvals));
-                display::kv("Fully approved",
-                    if lm.is_fully_approved() { "YES" } else { "no" });
-                for r in &lm.reviews {
-                    let status = format!("{:?}", r.status);
-                    let who = r.reviewer.as_deref().unwrap_or("unassigned");
-                    display::kv(&format!("  Slot {}", r.slot), &format!("{status} — {who}"));
-                }
-            }
+            Ok(lm) => display::kv("Schema", &lm.schema),
             Err(e) => display::fail_kv("Locked file", &e.to_string()),
         }
     } else {
-        display::kv("Maintainer review", "no .zex.locked companion found");
+        display::kv("Review artifact", "no .zex.locked companion found");
     }
 
-    Ok(())
-}
-
-// ── Review ───────────────────────────────────────────────────────────────────
-
-fn cmd_review(
-    locked_file: std::path::PathBuf,
-    reviewer: String,
-    status_arg: ReviewStatusArg,
-    notes: String,
-) -> crate::error::Result<()> {
-    display::title("Maintainer Review — updating slot");
-
-    let mut lm = read_locked_manifest(&locked_file)?;
-
-    display::kv("Package", &format!("{} {}", lm.package_name, lm.package_version));
-    display::kv("Reviewer", &reviewer);
-
-    let status = match status_arg {
-        ReviewStatusArg::Approved         => ReviewStatus::Approved,
-        ReviewStatusArg::ChangesRequested => ReviewStatus::ChangesRequested,
-        ReviewStatusArg::Rejected         => ReviewStatus::Rejected,
-    };
-    display::kv("Status", &format!("{status:?}"));
-
-    // Update the first review slot (single-reviewer workflow)
-    let slot_entry = lm
-        .reviews
-        .first_mut()
-        .ok_or_else(|| crate::error::ZexError::Other(
-            "no review slots found in locked manifest".to_string()
-        ))?;
-
-    slot_entry.reviewer    = Some(reviewer);
-    slot_entry.status      = status;
-    slot_entry.reviewed_at = Some(chrono::Utc::now());
-    slot_entry.notes       = if notes.is_empty() { None } else { Some(notes) };
-
-    // Rewrite the .zex.locked file with updated JSON header while
-    // preserving the embedded compressed source tarball.
-    rewrite_locked_manifest(&locked_file, &lm)?;
-
-    // Also regenerate the companion review.md
-    let md_path = locked_file.with_extension("locked.review.md");
-    std::fs::write(&md_path, lm.to_review_markdown())?;
-
-    display::ok_kv("Saved", &locked_file.display().to_string());
-    display::ok_kv("Review doc updated", &md_path.display().to_string());
-
-    display::kv("Approvals now",
-        &format!("{}/{}", lm.approvals_count(), lm.required_approvals));
-    if lm.is_fully_approved() {
-        display::success("All slots approved — package may be submitted to the repository.");
-    }
-
-    Ok(())
-}
-
-/// Update the JSON header inside a `.zex.locked` file in-place, keeping
-/// the embedded compressed source blob unchanged.
-fn rewrite_locked_manifest(
-    path: &std::path::PathBuf,
-    lm: &crate::core::lock::LockedManifest,
-) -> crate::error::Result<()> {
-    use std::io::Write;
-    let raw = std::fs::read(path)?;
-    if raw.len() < 12 || &raw[0..4] != b"ZEXL" {
-        return Err(crate::error::ZexError::InvalidFormat("bad magic".into()));
-    }
-    let old_manifest_len = u64::from_le_bytes(raw[4..12].try_into().unwrap()) as usize;
-    let blob_start = 12 + old_manifest_len;
-    let compressed_blob = raw[blob_start..].to_vec();
-
-    let new_json = serde_json::to_vec(lm)?;
-    let mut f = std::fs::File::create(path)?;
-    f.write_all(b"ZEXL")?;
-    f.write_all(&(new_json.len() as u64).to_le_bytes())?;
-    f.write_all(&new_json)?;
-    f.write_all(&compressed_blob)?;
-    f.flush()?;
     Ok(())
 }
 
