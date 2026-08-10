@@ -722,7 +722,8 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "oxipatch"
 version = "0.1.0"
-source = "git+https://gitlab.com/alizain.arch/oxipatch.git?rev=5a7e3ea3f219bf05ccfb126cd67fddcca1527aa0#5a7e3ea3f219bf05ccfb126cd67fddcca1527aa0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74869bc126260b203d960bf258e0cdcbdc278b1116ceb5c82711429246e74803"
 dependencies = [
  "clap",
  "clap_complete",
@@ -1364,8 +1365,9 @@ checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
 
 [[package]]
 name = "zexc"
-version = "1.3.0"
-source = "git+https://gitlab.com/alizain.arch/zexc.git?rev=0a5906b#0a5906bb8247202e5e70d78ad1d80d15edd4cefe"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64ea957d0df7fc004946a03ec4ab2bc4c59c4bc74fccbf6fd06e4be63acfc9d1"
 dependencies = [
  "anyhow",
  "crc32fast",

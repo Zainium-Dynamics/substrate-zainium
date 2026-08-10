@@ -1,4 +1,5 @@
 /target
+/.claude
 *.zex
 *.zex.locked
 *.zex.locked.review.md

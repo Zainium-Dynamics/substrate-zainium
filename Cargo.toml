@@ -5,6 +5,9 @@ edition = "2021"
 description = "Standalone package builder/verifier for Zainium .zex packages — pack, unpack, verify, inspect, review"
 license = "MIT"
 authors = ["Ali Zain <alizain@zainiumdynamics.tech>"]
+repository = "https://gitlab.com/alizain.arch/substrate"
+homepage = "https://gitlab.com/alizain.arch/substrate"
+readme = "README.md"
 
 [[bin]]
 name = "substrate"
@@ -16,7 +19,7 @@ serde         = { version = "1",    features = ["derive"] }
 serde_json    = "1"
 toml          = "0.8"
 tar           = "0.4"
-zexc          = { git = "https://gitlab.com/alizain.arch/zexc.git", rev = "0a5906b", default-features = false, features = ["std", "simd"] }
+zexc          = { version = "1.2.1", default-features = false, features = ["std", "simd"] }
 walkdir       = "2"
 ed25519-dalek = { version = "2",    features = ["rand_core"] }
 rand          = "0.8"
@@ -28,7 +31,7 @@ log           = "0.4"
 env_logger    = "0.11"
 chrono        = { version = "0.4",  features = ["serde"] }
 sha2 = "0.11.0"
-oxipatch      = { git = "https://gitlab.com/alizain.arch/oxipatch.git", rev = "5a7e3ea3f219bf05ccfb126cd67fddcca1527aa0" }
+oxipatch      = "0.1.0"
 
 [profile.release]
 opt-level = 3
