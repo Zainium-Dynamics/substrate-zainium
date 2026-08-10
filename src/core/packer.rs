@@ -51,6 +51,10 @@ pub struct PackOptions {
     pub zstd_level:   i32,
     /// Union-layer root for install receipt absolute paths.
     pub install_root: String,
+    /// Skip `.zex.locked` generation — for flows where review already
+    /// happened elsewhere (e.g. a GitLab merge request) and the review
+    /// artifact would just be dead weight.
+    pub skip_locked:  bool,
 }
 
 pub struct PackResult {
@@ -60,8 +64,8 @@ pub struct PackResult {
     pub report:            SecurityReport,
     pub receipt_path:      std::path::PathBuf,
     pub sbom_path:         std::path::PathBuf,
-    /// Always produced — single-reviewer website workflow.
-    pub locked_path:       std::path::PathBuf,
+    /// `None` when `PackOptions.skip_locked` was set.
+    pub locked_path:       Option<std::path::PathBuf>,
 }
 
 /// Pack `source_dir` into a canonical .zex at `output_path`.
@@ -273,7 +277,7 @@ pub fn pack(
         secrets,
     );
 
-    // ── Step 15: .zex.locked always (single-reviewer website flow) ───
+    // ── Step 15: .zex.locked, unless the caller opted out ─────────────
     // REVIEW.md / header.toml / receipt.toml are embedded inside the
     // locked tarball — no external sidecars for the review workflow.
     //
@@ -283,11 +287,15 @@ pub fn pack(
     // ed25519_sig / ed25519_pubkey still blank); without this, a reviewer
     // extracting .zex.locked sees empty signature fields even though the
     // actual .zex package they came from is fully signed.
-    let receipt_bytes = std::fs::read(&receipt_path)?;
-    let locked_path = crate::core::lock::write_locked(
-        source_dir, &manifest, &report, output_path, compressed_size,
-        &receipt_bytes, &manifest_toml, opts.extra_source.as_deref(),
-    )?;
+    let locked_path = if opts.skip_locked {
+        None
+    } else {
+        let receipt_bytes = std::fs::read(&receipt_path)?;
+        Some(crate::core::lock::write_locked(
+            source_dir, &manifest, &report, output_path, compressed_size,
+            &receipt_bytes, &manifest_toml, opts.extra_source.as_deref(),
+        )?)
+    };
 
     Ok(PackResult {
         output_path:       output_path.to_path_buf(),

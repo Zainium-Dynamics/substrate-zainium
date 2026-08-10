@@ -32,10 +32,11 @@ pub fn run(raw_args: Vec<String>) {
             features,
             requires_syshub,
             source,
+            no_locked,
             report,
             install_root,
             output,
-        } => cmd_pack(directory, version, description, features, requires_syshub, source, report, install_root, output),
+        } => cmd_pack(directory, version, description, features, requires_syshub, source, no_locked, report, install_root, output),
 
         Command::Unpack { file, output, verify_only } =>
             cmd_unpack(file, output, verify_only),
@@ -62,6 +63,7 @@ fn cmd_pack(
     features: Vec<String>,
     requires_syshub: Option<String>,
     source: Option<std::path::PathBuf>,
+    no_locked: bool,
     save_report: bool,
     install_root: String,
     output: Option<std::path::PathBuf>,
@@ -107,6 +109,7 @@ fn cmd_pack(
         builder: "Zainium Dynamics Official Builder".to_string(),
         zstd_level: crate::utils::compressor::DEFAULT_LEVEL,
         install_root,
+        skip_locked: no_locked,
     };
 
     let signer = fresh_ephemeral_signer();
@@ -190,8 +193,7 @@ fn cmd_pack(
         &format!("{:.1} MB", pack_result.uncompressed_size as f64 / 1_048_576.0));
     display::kv("Install receipt",   &pack_result.receipt_path.display().to_string());
 
-    {
-        let lp = &pack_result.locked_path;
+    if let Some(lp) = &pack_result.locked_path {
         display::kv("Locked artifact", &lp.display().to_string());
         let md = lp.with_extension("locked.review.md");
         display::kv("Review checklist", &md.display().to_string());

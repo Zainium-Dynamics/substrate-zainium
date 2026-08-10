@@ -11,8 +11,10 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Create a secure .zex package from a directory.
-    /// Always also emits `<out>.zex.locked` (real source + REVIEW.md +
-    /// header.toml + security.toml + receipt.toml).
+    /// By default also emits `<out>.zex.locked` (real source + REVIEW.md +
+    /// header.toml + security.toml + receipt.toml) — skip it with
+    /// --no-locked (e.g. CI publish runs where review already happened
+    /// via merge request, not a `.zex.locked` review artifact).
     Pack {
         directory: PathBuf,
 
@@ -39,6 +41,12 @@ pub enum Command {
         /// path, so payload/ is never double-embedded.
         #[arg(long)]
         source: Option<PathBuf>,
+
+        /// Skip generating `<out>.zex.locked`. Use in CI/publish flows
+        /// where review already happened elsewhere (e.g. a GitLab merge
+        /// request) — the .zex.locked review artifact is unneeded there.
+        #[arg(long, default_value_t = false)]
+        no_locked: bool,
 
         #[arg(long, default_value_t = false)]
         report: bool,
