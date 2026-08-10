@@ -28,7 +28,7 @@ The binary is `target/release/substrate`.
 substrate pack -v 1.0.0 ./my-package -o my-package-1.0.0.zex
 ```
 
-`./my-package` needs a `manifest.toml` (package metadata) and a `payload/` directory (the files that actually get installed). This produces `my-package-1.0.0.zex` (signed, hashed, ready to distribute) plus a `.receipt.toml` / `.spdx.json` (install receipt and SPDX SBOM).
+`./my-package` needs a `manifest.toml` (package metadata) and a `payload/` directory (the files that actually get installed). This produces `my-package-1.0.0.zex` — signed, hashed, ready to distribute — and nothing else.
 
 ```
 substrate verify my-package-1.0.0.zex        # check the signature, nothing else

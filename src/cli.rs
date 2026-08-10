@@ -11,10 +11,6 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Create a secure .zex package from a directory.
-    /// By default also emits `<out>.zex.locked` (real source + REVIEW.md +
-    /// header.toml + security.toml + receipt.toml) — skip it with
-    /// --no-locked (e.g. CI publish runs where review already happened
-    /// via merge request, not a `.zex.locked` review artifact).
     Pack {
         directory: PathBuf,
 
@@ -33,26 +29,12 @@ pub enum Command {
         #[arg(long)]
         requires_syshub: Option<String>,
 
-        /// Real source tree this package was compiled from, if it lives
-        /// outside `directory` (e.g. an upstream checkout with `directory`
-        /// as a build/output subdir of it). Embedded into `.zex.locked`
-        /// under `source/` for reviewers — never touches the `.zex` itself.
-        /// `directory` is pruned out of the walk if it's nested inside this
-        /// path, so payload/ is never double-embedded.
-        #[arg(long)]
-        source: Option<PathBuf>,
-
-        /// Skip generating `<out>.zex.locked`. Use in CI/publish flows
-        /// where review already happened elsewhere (e.g. a GitLab merge
-        /// request) — the .zex.locked review artifact is unneeded there.
-        #[arg(long, default_value_t = false)]
-        no_locked: bool,
-
         #[arg(long, default_value_t = false)]
         report: bool,
 
-        /// Union-layer root used to render absolute paths in the
-        /// install receipt .toml (rarely needs changing).
+        /// Union-layer root used to render install paths when
+        /// auto-generating a manifest.toml (only matters when `directory`
+        /// has no manifest.toml of its own — a real one ignores this).
         #[arg(long, default_value = "/overlayer/zexlib")]
         install_root: String,
 
@@ -60,7 +42,7 @@ pub enum Command {
         output: Option<PathBuf>,
     },
 
-    /// Extract a .zex package, or a .zex.locked review tree (includes REVIEW.md)
+    /// Extract a .zex package
     Unpack {
         file: PathBuf,
 

@@ -2,7 +2,7 @@
 
 ## `substrate pack <directory> -v <version>`
 
-Builds `<directory>` into a `.zex` package (plus its `.zex.locked` companion).
+Builds `<directory>` into a `.zex` package. That's the only output — no sidecar files.
 
 `<directory>` must contain:
 
@@ -15,17 +15,9 @@ Builds `<directory>` into a `.zex` package (plus its `.zex.locked` companion).
 | `--description <text>` | `""` | Overrides `manifest.toml`'s `package.description` (only if non-empty). |
 | `--features <a,b,c>` | `""` | Comma-separated feature list. |
 | `--requires-syshub <value>` | current year, e.g. `2026` | Required syshub release. Always overrides `manifest.toml`'s field — there's no "compute the right value" logic beyond the year default, so pass this explicitly if the package needs a specific syshub release. |
-| `--source <path>` | none | Real upstream source tree this package was compiled from, if it lives outside `<directory>` (e.g. `<directory>` is a build/output subdir of a much larger checkout). Embedded into `.zex.locked` under `source/` — never touches the `.zex`. `<directory>` is pruned out of the walk if it's nested inside this path, so `payload/` never gets double-embedded. |
-| `--install-root <path>` | `/overlayer/zexlib` | Union-layer root used to render absolute paths in the install receipt. Rarely needs changing. |
-| `--report` | `false` | (reserved) |
-| `-o, --output <path>` | `<name>-<version>.zex` | Output path for the `.zex`. Hyphen-separated, matching the Zainium ledger naming convention (e.g. `vim-9.1.1366.zex`) — not an underscore. The `.zex.locked` and other sidecars are derived from this path. |
-
-Output files (all next to `-o`'s path):
-
-- `<out>.zex` — the package.
-- `<out>.zex.locked` — review artifact (see README for contents).
-- `<out>.receipt.toml` — install receipt (also embedded in `.zex.locked`).
-- `<out>.spdx.json` — SPDX SBOM.
+| `--install-root <path>` | `/overlayer/zexlib` | Union-layer root used to render install paths only when `<directory>` has no `manifest.toml` of its own (auto-generated case). A real `manifest.toml` ignores this — its own `[install]` map wins. |
+| `--report` | `false` | Also write `<out>.security-report.json` — the same report embedded in the `.zex`, dumped to disk for tooling that wants it separately. |
+| `-o, --output <path>` | `<name>-<version>.zex` | Output path. Hyphen-separated, matching the Zainium ledger naming convention (e.g. `vim-9.1.1366.zex`) — not an underscore. |
 
 Example:
 
@@ -33,32 +25,17 @@ Example:
 substrate pack -v 2.3.0 --requires-syshub 2026 ./build/myapp -o myapp-2.3.0.zex
 ```
 
-With an external source tree — e.g. `<directory>` (`./build/gcc-musl`) is just the
-manifest.toml + payload/ staging dir, and the real compiled-from source lives in a
-sibling checkout (`/src/gcc-16`):
-
-```
-substrate pack -v 16.0 --requires-syshub 2026 \
-  --source /src/gcc-16 \
-  ./build/gcc-musl \
-  -o gcc-musl-16.0.zex
-```
-
 ## `substrate unpack <file> -o <dir>`
 
-Works on either a `.zex` or a `.zex.locked` file — detected automatically from the file's magic bytes.
-
-- **`.zex`**: verifies the Ed25519 signature (hard requirement, not optional), extracts `payload/`'s contents into `<dir>` with correct file modes, writes `<dir>/security-report.json`.
-- **`.zex.locked`**: extracts `manifest.toml`, `REVIEW.md`, `header.toml`, `security.toml`, `receipt.toml`, and `source/` (if present) into `<dir>`. No signature check here — a `.zex.locked`'s integrity is the maintainer review flow itself, not a per-file signature.
+Verifies the Ed25519 signature (hard requirement, not optional), extracts `payload/`'s contents into `<dir>` with correct file modes, writes `<dir>/security-report.json`.
 
 | Flag | Meaning |
 |---|---|
-| `-o, --output <dir>` | Destination directory. Defaults to the package name (`.zex`) or `<name>-<version>-review` (`.zex.locked`). |
-| `--verify-only` | Check the signature (`.zex`) or parse the header (`.zex.locked`) without extracting anything. |
+| `-o, --output <dir>` | Destination directory. Defaults to the package name. |
+| `--verify-only` | Check the signature without extracting anything. |
 
 ```
 substrate unpack myapp_2.3.0.zex -o ./extracted
-substrate unpack myapp_2.3.0.zex.locked -o ./review-tree
 ```
 
 ## `substrate verify <file>`
@@ -67,25 +44,10 @@ Shorthand for `substrate unpack <file> --verify-only`.
 
 ## `substrate inspect <file>`
 
-Prints the manifest, embedded security report, and (if a `.zex.locked` sits next to the `.zex`) the maintainer review status — without extracting anything.
+Prints the manifest and embedded security report without extracting anything.
 
 ```
 substrate inspect myapp_2.3.0.zex
-```
-
-## `substrate review <locked_file> --reviewer <id> --status <status>`
-
-Records the single maintainer decision on a `.zex.locked` artifact by rewriting its JSON header in place. This is the offline/local equivalent of the website's Approve button.
-
-| Flag | Meaning |
-|---|---|
-| `locked_file` | Path to the `.zex.locked` file (positional). |
-| `--reviewer <id>` | Reviewer identifier, e.g. `alice@zainium.org`. |
-| `--status <status>` | One of `approved`, `changes-requested`, `rejected`. |
-| `--notes <text>` | Optional free-text notes. |
-
-```
-substrate review myapp_2.3.0.zex.locked --reviewer alice@zainium.org --status approved
 ```
 
 ## `substrate keygen -o <path>`

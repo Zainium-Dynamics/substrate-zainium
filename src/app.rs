@@ -3,7 +3,6 @@ use clap::Parser;
 use crate::cli::{Cli, Command};
 use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
-use crate::core::lock::read_locked_manifest;
 use crate::core::{packer, unpacker, verifier};
 use crate::security::audit_common::ToolOutcome;
 use crate::security::signer::Signer128;
@@ -31,12 +30,10 @@ pub fn run(raw_args: Vec<String>) {
             description,
             features,
             requires_syshub,
-            source,
-            no_locked,
             report,
             install_root,
             output,
-        } => cmd_pack(directory, version, description, features, requires_syshub, source, no_locked, report, install_root, output),
+        } => cmd_pack(directory, version, description, features, requires_syshub, report, install_root, output),
 
         Command::Unpack { file, output, verify_only } =>
             cmd_unpack(file, output, verify_only),
@@ -62,8 +59,6 @@ fn cmd_pack(
     description: String,
     features: Vec<String>,
     requires_syshub: Option<String>,
-    source: Option<std::path::PathBuf>,
-    no_locked: bool,
     save_report: bool,
     install_root: String,
     output: Option<std::path::PathBuf>,
@@ -105,11 +100,9 @@ fn cmd_pack(
         description: description.clone(),
         features: features.into_iter().filter(|f| !f.is_empty()).collect(),
         requires_syshub,
-        extra_source: source,
         builder: "Zainium Dynamics Official Builder".to_string(),
         zstd_level: crate::utils::compressor::DEFAULT_LEVEL,
         install_root,
-        skip_locked: no_locked,
     };
 
     let signer = fresh_ephemeral_signer();
@@ -191,13 +184,6 @@ fn cmd_pack(
         &format!("{:.1} MB", pack_result.compressed_size as f64 / 1_048_576.0));
     display::kv("Uncompressed",
         &format!("{:.1} MB", pack_result.uncompressed_size as f64 / 1_048_576.0));
-    display::kv("Install receipt",   &pack_result.receipt_path.display().to_string());
-
-    if let Some(lp) = &pack_result.locked_path {
-        display::kv("Locked artifact", &lp.display().to_string());
-        let md = lp.with_extension("locked.review.md");
-        display::kv("Review checklist", &md.display().to_string());
-    }
 
     display::kv("Inspect with",
         &format!("substrate inspect {}", output_path.display()));
@@ -228,15 +214,6 @@ fn cmd_unpack(
     verify_only: bool,
 ) -> crate::error::Result<()> {
     let buf = std::fs::read(&file)?;
-
-    // `.zex.locked` review artifacts have a distinct `ZEXL` wrapper (magic
-    // || u64 header len || JSON header || zexc tar) — they are not a bare
-    // ZEX1 frame, so they can't go through verifier::parse. Route them to
-    // the dedicated locked-extraction path instead.
-    if crate::core::lock::is_locked_bytes(&buf) {
-        return cmd_unpack_locked(&file, &buf, output, verify_only);
-    }
-
     let parsed = verifier::parse(buf)?;
     // No external trust store to check against — every package embeds the
     // ephemeral public key it was actually signed with, right in its own
@@ -319,41 +296,6 @@ fn cmd_unpack(
     display::success("Package unpacked successfully.");
     display::kv("Destination", &dest.display().to_string());
     display::kv("Report",      &report_path.display().to_string());
-
-    Ok(())
-}
-
-/// Extract a `.zex.locked` review artifact: source tree + REVIEW.md +
-/// header.toml + receipt.toml. No ed25519 signature to check here — that's
-/// the `.zex` package's job; the locked file's integrity is the maintainer
-/// review flow itself (see `lock::read_locked_manifest`).
-fn cmd_unpack_locked(
-    file: &std::path::Path,
-    buf: &[u8],
-    output: Option<std::path::PathBuf>,
-    verify_only: bool,
-) -> crate::error::Result<()> {
-    let locked = crate::core::lock::read_locked_manifest_from_bytes(buf)?;
-
-    display::title(&format!("Unpacking locked review artifact {}", file.display()));
-    display::kv("Name",              &locked.package_name);
-    display::kv("Version",           &locked.package_version);
-
-    if verify_only {
-        display::success("Locked header parsed OK.");
-        return Ok(());
-    }
-
-    let dest = output.unwrap_or_else(|| {
-        std::path::PathBuf::from(format!("{}-{}-review", locked.package_name, locked.package_version))
-    });
-
-    display::step("Extracting source tree, REVIEW.md, header.toml, receipt.toml...");
-    let count = crate::core::lock::extract_locked_bytes(buf, &dest)?;
-    display::kv("Files extracted", &count.to_string());
-
-    display::success("Locked review artifact unpacked.");
-    display::kv("Destination", &dest.display().to_string());
 
     Ok(())
 }
@@ -443,22 +385,6 @@ fn cmd_inspect(file: std::path::PathBuf) -> crate::error::Result<()> {
         for t in &ca.tools {
             show_tool_result(t.outcome, &t.tool, &t.summary);
         }
-    }
-
-    // Check for companion .zex.locked
-    let locked_path = {
-        let mut p = file.as_os_str().to_os_string();
-        p.push(".locked");
-        std::path::PathBuf::from(p)
-    };
-    if locked_path.exists() {
-        display::step("Review artifact (.zex.locked)");
-        match read_locked_manifest(&locked_path) {
-            Ok(lm) => display::kv("Schema", &lm.schema),
-            Err(e) => display::fail_kv("Locked file", &e.to_string()),
-        }
-    } else {
-        display::kv("Review artifact", "no .zex.locked companion found");
     }
 
     Ok(())

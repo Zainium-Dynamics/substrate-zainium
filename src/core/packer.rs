@@ -43,18 +43,12 @@ pub struct PackOptions {
     /// Explicit override for `manifest.package.requires_syshub`. `None`
     /// means "compute the default" (current calendar year) — see `pack()`.
     pub requires_syshub: Option<String>,
-    /// Real source tree this package was compiled from, when it lives
-    /// outside `source_dir` — embedded into `.zex.locked` under `source/`.
-    /// Never touches the `.zex` itself.
-    pub extra_source: Option<std::path::PathBuf>,
     pub builder:      String,
     pub zstd_level:   i32,
-    /// Union-layer root for install receipt absolute paths.
+    /// Union-layer root used to render install paths when auto-generating
+    /// a manifest.toml (no other purpose — a real manifest.toml on disk
+    /// already has its own [install] map and ignores this).
     pub install_root: String,
-    /// Skip `.zex.locked` generation — for flows where review already
-    /// happened elsewhere (e.g. a GitLab merge request) and the review
-    /// artifact would just be dead weight.
-    pub skip_locked:  bool,
 }
 
 pub struct PackResult {
@@ -62,10 +56,6 @@ pub struct PackResult {
     pub compressed_size:   u64,
     pub uncompressed_size: u64,
     pub report:            SecurityReport,
-    pub receipt_path:      std::path::PathBuf,
-    pub sbom_path:         std::path::PathBuf,
-    /// `None` when `PackOptions.skip_locked` was set.
-    pub locked_path:       Option<std::path::PathBuf>,
 }
 
 /// Pack `source_dir` into a canonical .zex at `output_path`.
@@ -243,24 +233,7 @@ pub fn pack(
     }
     std::fs::write(output_path, &compressed)?;
 
-    // ── Step 12b: SPDX SBOM ───────────────────────────────────────────
-    let sbom_path = output_path.with_extension("spdx.json");
-    let sbom_json = crate::security::sbom::generate_spdx(
-        source_dir,
-        &manifest,
-        &payload_files,
-    )?;
-    std::fs::write(&sbom_path, sbom_json)?;
-
-    // ── Step 13: Write install receipt .toml ─────────────────────────
-    let receipt_path = crate::core::receipt::write_receipt(
-        output_path,
-        &manifest,
-        &payload_files,
-        &opts.install_root,
-    )?;
-
-    // ── Step 14: Security report ──────────────────────────────────────
+    // ── Step 13: Security report ──────────────────────────────────────
     let permission_audit = scanner::audit_permissions(&payload_dir)?;
     let manifest_integrity = scanner::ManifestIntegrityResult {
         result: scanner::CheckOutcome::Passed,
@@ -277,34 +250,11 @@ pub fn pack(
         secrets,
     );
 
-    // ── Step 15: .zex.locked, unless the caller opted out ─────────────
-    // REVIEW.md / header.toml / receipt.toml are embedded inside the
-    // locked tarball — no external sidecars for the review workflow.
-    //
-    // `manifest_toml` (Step 8) is passed through explicitly and re-written
-    // over whatever `manifest.toml` gets pulled in from `source_dir` on
-    // disk — that on-disk copy is the pre-signing template (blake3 /
-    // ed25519_sig / ed25519_pubkey still blank); without this, a reviewer
-    // extracting .zex.locked sees empty signature fields even though the
-    // actual .zex package they came from is fully signed.
-    let locked_path = if opts.skip_locked {
-        None
-    } else {
-        let receipt_bytes = std::fs::read(&receipt_path)?;
-        Some(crate::core::lock::write_locked(
-            source_dir, &manifest, &report, output_path, compressed_size,
-            &receipt_bytes, &manifest_toml, opts.extra_source.as_deref(),
-        )?)
-    };
-
     Ok(PackResult {
         output_path:       output_path.to_path_buf(),
         compressed_size,
         uncompressed_size: uncompressed,
         report,
-        receipt_path,
-        sbom_path,
-        locked_path,
     })
 }
 
