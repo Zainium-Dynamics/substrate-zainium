@@ -139,12 +139,18 @@ pub fn pack(
     // $ORIGIN-relative per file, which needs the [install] map to know
     // where each file actually lands) and before Step 5/6 read + hash the
     // payload — the embedded blake3 has to cover the final, patched bytes.
-    let lib_target = if manifest.install._syshub {
-        crate::core::elfpatch::SYSHUB_LIB_TARGET
-    } else {
-        crate::core::elfpatch::USERLAND_LIB_TARGET
-    };
-    crate::core::elfpatch::patch_payload_dir(&payload_dir, &manifest.install.paths, lib_target)?;
+    //
+    // Skipped entirely for `native = true` packages (self-hosting
+    // toolchains etc.) — they already shipped with the correct final
+    // interpreter/RPATH from their own build, so there's nothing to patch.
+    if !manifest.package.native {
+        let lib_target = if manifest.install._syshub {
+            crate::core::elfpatch::SYSHUB_LIB_TARGET
+        } else {
+            crate::core::elfpatch::USERLAND_LIB_TARGET
+        };
+        crate::core::elfpatch::patch_payload_dir(&payload_dir, &manifest.install.paths, lib_target)?;
+    }
 
     // ── Step 5: Walk payload/ — compute sizes + Blake3 ────────────────
     let mut payload_files: Vec<(String, Vec<u8>)> = Vec::new();

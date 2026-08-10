@@ -69,6 +69,15 @@ pub struct PackageMeta {
     pub provides:      Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requires_syshub: Option<String>,
+
+    /// Skip `elfpatch`'s interpreter/RPATH rewrite entirely for this
+    /// package. For self-hosting toolchain packages (e.g. a native
+    /// gcc-musl-cross build) that already compiled themselves with the
+    /// correct final interpreter/RPATH baked in — rewriting it generically
+    /// is redundant at best, wrong at worst. Default `false`: regular
+    /// userland packages are unaffected and still get patched.
+    #[serde(default)]
+    pub native: bool,
 }
 
 /// [install] — maps payload/ subdirs to absolute on-disk destinations.
