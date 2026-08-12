@@ -27,7 +27,7 @@ pub fn unpack(
     std::fs::create_dir_all(dest_dir)?;
 
     let mut count = 0usize;
-    for (archive_path, bytes, mode) in &parsed.payload_files {
+    for (archive_path, bytes, mode, target) in &parsed.payload_files {
         let rel = archive_path
             .strip_prefix("payload/")
             .ok_or_else(|| {
@@ -40,6 +40,25 @@ pub fn unpack(
         if let Some(parent) = safe_path.parent() {
             std::fs::create_dir_all(parent).map_err(ZexError::Io)?;
         }
+
+        if let Some(link_target) = target {
+            // Recreate the symlink itself rather than writing its (empty)
+            // body as a regular file — e.g. musl's
+            // ld-musl-x86_64.so.1 -> libc.so loader symlink, which every
+            // musl-linked binary's PT_INTERP points at.
+            #[cfg(unix)]
+            {
+                // A previous unpack (or a stale extraction) may have left
+                // something at this path — symlink() fails if the target
+                // already exists.
+                let _ = std::fs::remove_file(&safe_path);
+                std::os::unix::fs::symlink(link_target, &safe_path)
+                    .map_err(ZexError::Io)?;
+            }
+            count += 1;
+            continue;
+        }
+
         std::fs::write(&safe_path, bytes).map_err(ZexError::Io)?;
         // Confirmed live: without this, every unpacked file — including
         // binaries — landed as -rw-r--r--, unusable until manually

@@ -147,7 +147,15 @@ pub fn pack(
     }
 
     // ── Step 5: Walk payload/ — compute sizes + Blake3 ────────────────
-    let mut payload_files: Vec<(String, Vec<u8>)> = Vec::new();
+    // Each entry is (rel_path, bytes, symlink_target). `WalkDir` does not
+    // follow symlinks by default, so a symlink's `file_type()` reports
+    // "symlink", not "file" — treating that as "skip it" (the previous
+    // behaviour) silently dropped every symlink from every package ever
+    // packed. musl's own `ld-musl-x86_64.so.1 -> libc.so` loader symlink is
+    // exactly this shape, so any musl-linked binary in a downstream
+    // package became unexecutable once unpacked. Symlinks are now carried
+    // through as their own entry kind (empty byte body, target instead).
+    let mut payload_files: Vec<(String, Vec<u8>, Option<String>)> = Vec::new();
     let mut uncompressed = 0u64;
 
     for entry in walkdir::WalkDir::new(&payload_dir)
@@ -155,24 +163,37 @@ pub fn pack(
         .into_iter()
         .filter_map(|e| e.ok())
     {
-        if !entry.file_type().is_file() { continue; }
+        let ft = entry.file_type();
         let rel = entry.path()
             .strip_prefix(source_dir)
             .unwrap_or(entry.path())
             .to_string_lossy()
             .to_string();
+        if ft.is_symlink() {
+            let target = std::fs::read_link(entry.path())?
+                .to_string_lossy()
+                .to_string();
+            payload_files.push((rel, Vec::new(), Some(target)));
+            continue;
+        }
+        if !ft.is_file() { continue; }
         let bytes = std::fs::read(entry.path())?;
         uncompressed += bytes.len() as u64;
-        payload_files.push((rel, bytes));
+        payload_files.push((rel, bytes, None));
     }
 
     // ── Step 6: Blake3 over sorted payload files ───────────────────────
     // Explicit path sort so pack/verify/install all hash in the same order.
+    // Symlinks hash their target string instead of file bytes (which are
+    // empty for them) — must match verifier.rs::verify_signature exactly.
     payload_files.sort_by(|a, b| a.0.cmp(&b.0));
     let mut payload_hasher = blake3::Hasher::new();
-    for (path, bytes) in &payload_files {
+    for (path, bytes, target) in &payload_files {
         payload_hasher.update(path.as_bytes());
-        payload_hasher.update(bytes);
+        match target {
+            Some(t) => payload_hasher.update(t.as_bytes()),
+            None => payload_hasher.update(bytes),
+        };
     }
     let payload_blake3 = payload_hasher.finalize().to_hex().to_string();
 
@@ -216,8 +237,11 @@ pub fn pack(
         append_bytes(&mut builder, "signature.b3", sig_b3.as_bytes(), 0o644)?;
 
         // payload/ files (already loaded)
-        for (rel_path, bytes) in &payload_files {
-            append_bytes(&mut builder, rel_path, bytes, 0o755)?;
+        for (rel_path, bytes, target) in &payload_files {
+            match target {
+                Some(t) => append_symlink(&mut builder, rel_path, t)?,
+                None => append_bytes(&mut builder, rel_path, bytes, 0o755)?,
+            }
         }
 
         builder.finish()?;
@@ -272,6 +296,20 @@ fn append_bytes<W: Write>(
     header.set_mtime(0); // deterministic
     header.set_cksum();
     builder.append_data(&mut header, path, data)
+        .map_err(crate::error::ZexError::Io)
+}
+
+fn append_symlink<W: Write>(
+    builder: &mut tar::Builder<W>,
+    path: &str,
+    target: &str,
+) -> Result<()> {
+    let mut header = tar::Header::new_gnu();
+    header.set_entry_type(tar::EntryType::Symlink);
+    header.set_size(0);
+    header.set_mode(0o777);
+    header.set_mtime(0); // deterministic
+    builder.append_link(&mut header, path, target)
         .map_err(crate::error::ZexError::Io)
 }
 

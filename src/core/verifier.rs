@@ -17,12 +17,14 @@ pub struct ParsedZex {
     pub manifest_raw:  String,
     pub signature:     SignatureBlock,
     pub report:        SecurityReport,
-    /// (archive path, bytes, POSIX mode) — mode is carried through so
-    /// `unpacker.rs` can restore it on extraction. `packer.rs` always
-    /// writes payload entries with mode 0o755 (see `append_bytes`), but
-    /// reading it back from the real tar header rather than assuming
+    /// (archive path, bytes, POSIX mode, symlink target) — mode is carried
+    /// through so `unpacker.rs` can restore it on extraction. `packer.rs`
+    /// always writes payload entries with mode 0o755 (see `append_bytes`),
+    /// but reading it back from the real tar header rather than assuming
     /// avoids silently depending on that constant staying in sync forever.
-    pub payload_files: Vec<(String, Vec<u8>, u32)>,
+    /// `Some(target)` marks a symlink entry — `bytes` is empty for those,
+    /// `unpacker.rs` recreates the link rather than writing a file.
+    pub payload_files: Vec<(String, Vec<u8>, u32, Option<String>)>,
 }
 
 /// Parse a .zex file from raw bytes without verifying signature.
@@ -36,7 +38,7 @@ pub fn parse(data: Vec<u8>) -> Result<ParsedZex> {
 
     let mut manifest_toml:    Option<String>         = None;
     let mut sig_b3_file:      Option<String>         = None;
-    let mut payload_files:    Vec<(String, Vec<u8>, u32)> = Vec::new();
+    let mut payload_files:    Vec<(String, Vec<u8>, u32, Option<String>)> = Vec::new();
 
     for entry in archive.entries()
         .map_err(|e| ZexError::InvalidFormat(format!("tar read failed: {e}")))?
@@ -57,6 +59,14 @@ pub fn parse(data: Vec<u8>) -> Result<ParsedZex> {
         }
 
         let mode = entry.header().mode().unwrap_or(0o644);
+        let is_symlink = entry.header().entry_type().is_symlink();
+        let link_target = if is_symlink {
+            entry.link_name()
+                .map_err(ZexError::Io)?
+                .map(|p| p.to_string_lossy().to_string())
+        } else {
+            None
+        };
 
         let mut bytes = Vec::new();
         entry.read_to_end(&mut bytes)
@@ -74,7 +84,7 @@ pub fn parse(data: Vec<u8>) -> Result<ParsedZex> {
                 })?);
             }
             p if p.starts_with("payload/") => {
-                payload_files.push((path, bytes, mode));
+                payload_files.push((path, bytes, mode, link_target));
             }
             _ => {
                 // Ignore unknown root-level files
@@ -127,11 +137,16 @@ pub fn parse(data: Vec<u8>) -> Result<ParsedZex> {
 ///   2. Ed25519 verify(blake3, manifest.ed25519_sig, public_key)
 ///   3. Recompute signature.b3 — compare to embedded sig_b3
 pub fn verify_signature(parsed: &ParsedZex, public_key: &VerifyingKey) -> Result<bool> {
-    // 1. Recompute Blake3 over payload files (sorted)
+    // 1. Recompute Blake3 over payload files (sorted) — symlinks hash
+    //    their target string instead of bytes (empty for those), must
+    //    match packer.rs's Step 6 exactly.
     let mut payload_hasher = blake3::Hasher::new();
-    for (path, bytes, _mode) in &parsed.payload_files {
+    for (path, bytes, _mode, target) in &parsed.payload_files {
         payload_hasher.update(path.as_bytes());
-        payload_hasher.update(bytes);
+        match target {
+            Some(t) => payload_hasher.update(t.as_bytes()),
+            None => payload_hasher.update(bytes),
+        };
     }
     let computed_blake3 = payload_hasher.finalize().to_hex().to_string();
 

@@ -47,6 +47,8 @@ package-1.0.0.zex           (zexc-compressed tar, magic ZEX1)
 └── payload/                   ← the actual files, laid out to match manifest.toml's install map
 ```
 
+Symlinks inside `payload/` are preserved as real symlinks through `pack`/`unpack` (not followed, not dropped) — the Blake3 hash covers their target path rather than file bytes.
+
 ## License
 
 MIT.
