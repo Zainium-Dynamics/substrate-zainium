@@ -18,7 +18,8 @@ pub fn blake3_hex(data: &[u8]) -> String {
     blake3::hash(data).to_hex().to_string()
 }
 
-/// Stream-hash a file with blake3 without loading it entirely into memory.
+// Stream-hash a file with blake3.
+
 pub fn blake3_file(path: &std::path::Path) -> Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut hasher = blake3::Hasher::new();

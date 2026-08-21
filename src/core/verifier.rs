@@ -1,7 +1,5 @@
-//! verifier.rs — Verify a canonical .zex package (tar + zexc).
-//!
-//! Reads: manifest.toml + signature.b3 + payload/ tree from a zexc frame.
-//! Verifies: Blake3 integrity + Ed25519 signature.
+// Package verification logic for .zex packages.
+
 
 use crate::core::manifest::ZexTomlManifest;
 use crate::core::report::SecurityReport;
@@ -11,34 +9,26 @@ use crate::zex_codec;
 use ed25519_dalek::VerifyingKey;
 use std::io::Read;
 
-/// Parsed and verified contents of a .zex package.
+// Parsed contents of a .zex package.
 pub struct ParsedZex {
     pub manifest:      ZexTomlManifest,
     pub manifest_raw:  String,
     pub signature:     SignatureBlock,
     pub report:        SecurityReport,
-    /// (archive path, bytes, POSIX mode, symlink target) — mode is carried
-    /// through so `unpacker.rs` can restore it on extraction. `packer.rs`
-    /// always writes payload entries with mode 0o755 (see `append_bytes`),
-    /// but reading it back from the real tar header rather than assuming
-    /// avoids silently depending on that constant staying in sync forever.
-    /// `Some(target)` marks a symlink entry — `bytes` is empty for those,
-    /// `unpacker.rs` recreates the link rather than writing a file.
     pub payload_files: Vec<(String, Vec<u8>, u32, Option<String>)>,
 }
 
-/// Parse a .zex file from raw bytes without verifying signature.
-/// Call [`verify_signature`] separately.
+// Parse .zex package archive bytes into ParsedZex.
+
 pub fn parse(data: Vec<u8>) -> Result<ParsedZex> {
-    // Decompress zexc (ZEX1) → tar
     let dec = zex_codec::decompress(&data)
         .map_err(|e| ZexError::InvalidFormat(format!("zexc decompress failed: {e}")))?;
 
     let mut archive = tar::Archive::new(std::io::Cursor::new(&dec));
 
-    let mut manifest_toml:    Option<String>         = None;
-    let mut sig_b3_file:      Option<String>         = None;
-    let mut payload_files:    Vec<(String, Vec<u8>, u32, Option<String>)> = Vec::new();
+    let mut manifest_toml: Option<String> = None;
+    let mut sig_b3_file:   Option<String> = None;
+    let mut payload_files: Vec<(String, Vec<u8>, u32, Option<String>)> = Vec::new();
 
     for entry in archive.entries()
         .map_err(|e| ZexError::InvalidFormat(format!("tar read failed: {e}")))?
@@ -51,10 +41,9 @@ pub fn parse(data: Vec<u8>) -> Result<ParsedZex> {
             .to_string_lossy()
             .to_string();
 
-        // Reject path traversal immediately
         if path.contains("../") || path.contains("/..") {
             return Err(ZexError::InvalidFormat(
-                format!("SECURITY: path traversal in package: {path}")
+                format!("path traversal detected: {path}")
             ));
         }
 
@@ -86,39 +75,34 @@ pub fn parse(data: Vec<u8>) -> Result<ParsedZex> {
             p if p.starts_with("payload/") => {
                 payload_files.push((path, bytes, mode, link_target));
             }
-            _ => {
-                // Ignore unknown root-level files
-            }
+            _ => {}
         }
     }
 
     let manifest_str = manifest_toml.ok_or_else(|| {
-        ZexError::InvalidFormat("manifest.toml missing from .zex archive".into())
+        ZexError::InvalidFormat("manifest.toml missing from package archive".into())
     })?;
     let sig_b3_str = sig_b3_file.ok_or_else(|| {
-        ZexError::InvalidFormat("signature.b3 missing from .zex archive".into())
+        ZexError::InvalidFormat("signature.b3 missing from package archive".into())
     })?;
 
     let manifest: ZexTomlManifest = toml::from_str(&manifest_str).map_err(|e| {
         ZexError::InvalidFormat(format!("manifest.toml parse error: {e}"))
     })?;
 
-    // Sort payload files (deterministic hash order)
     payload_files.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // Build signature block from manifest fields
     let signed_by = manifest.package.maintainer.clone();
     let blake3_digest = manifest.package.blake3.clone().unwrap_or_default();
     let ed25519_sig   = manifest.package.ed25519_sig.clone();
     let signature = SignatureBlock {
         signed_by,
         blake3_digest,
-        sha512_digest: String::new(), // reserved
+        sha512_digest: String::new(),
         ed25519_signature: ed25519_sig,
         sig_b3: sig_b3_str.trim().to_string(),
     };
 
-    // Default empty report (loaded from JSON sidecar if present)
     let report = SecurityReport::default();
 
     Ok(ParsedZex {
@@ -130,16 +114,9 @@ pub fn parse(data: Vec<u8>) -> Result<ParsedZex> {
     })
 }
 
-/// Verify cryptographic integrity of a parsed .zex.
-///
-/// Checks (in order):
-///   1. Recompute Blake3 over payload tree — compare to manifest.package.blake3
-///   2. Ed25519 verify(blake3, manifest.ed25519_sig, public_key)
-///   3. Recompute signature.b3 — compare to embedded sig_b3
+// Verify signature and integrity hashes of a parsed .zex package.
+
 pub fn verify_signature(parsed: &ParsedZex, public_key: &VerifyingKey) -> Result<bool> {
-    // 1. Recompute Blake3 over payload files (sorted) — symlinks hash
-    //    their target string instead of bytes (empty for those), must
-    //    match packer.rs's Step 6 exactly.
     let mut payload_hasher = blake3::Hasher::new();
     for (path, bytes, _mode, target) in &parsed.payload_files {
         payload_hasher.update(path.as_bytes());
@@ -151,10 +128,9 @@ pub fn verify_signature(parsed: &ParsedZex, public_key: &VerifyingKey) -> Result
     let computed_blake3 = payload_hasher.finalize().to_hex().to_string();
 
     if computed_blake3 != parsed.signature.blake3_digest {
-        return Ok(false); // payload tampered
+        return Ok(false);
     }
 
-    // 2. Ed25519 verify
     if let Some(ref sig_hex) = parsed.signature.ed25519_signature {
         let sig_bytes = hex::decode(sig_hex)
             .map_err(|e| ZexError::Other(e.to_string()))?;
@@ -164,19 +140,19 @@ pub fn verify_signature(parsed: &ParsedZex, public_key: &VerifyingKey) -> Result
             .verify_strict(computed_blake3.as_bytes(), &sig)
             .is_err()
         {
-            return Ok(false); // signature invalid
+            return Ok(false);
         }
     }
 
-    // 3. signature.b3 check (raw manifest.toml bytes + payload blake3)
     let mut sig_hasher = blake3::Hasher::new();
     sig_hasher.update(parsed.manifest_raw.as_bytes());
     sig_hasher.update(computed_blake3.as_bytes());
     let computed_sig_b3 = sig_hasher.finalize().to_hex().to_string();
 
     if computed_sig_b3 != parsed.signature.sig_b3 {
-        return Ok(false); // manifest tampered after signing
+        return Ok(false);
     }
 
     Ok(true)
 }
+

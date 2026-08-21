@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "substrate", about = "Zainium Secure Package Format Tool")]
+#[command(name = "substrate", about = "Zainium Package Builder and Verifier")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -23,18 +23,12 @@ pub enum Command {
         #[arg(long, value_delimiter = ',', default_value = "")]
         features: Vec<String>,
 
-        /// Required syshub release this package targets. Defaults to the
-        /// current calendar year (e.g. "2026") if omitted — always
-        /// overrides whatever's in manifest.toml, same as --version.
+        /// Target syshub release version.
         #[arg(long)]
         requires_syshub: Option<String>,
 
-        #[arg(long, default_value_t = false)]
-        report: bool,
+        /// Installation root path for auto-generated manifests.
 
-        /// Union-layer root used to render install paths when
-        /// auto-generating a manifest.toml (only matters when `directory`
-        /// has no manifest.toml of its own — a real one ignores this).
         #[arg(long, default_value = "/overlayer/zexlib")]
         install_root: String,
 
@@ -42,7 +36,7 @@ pub enum Command {
         output: Option<PathBuf>,
     },
 
-    /// Extract a .zex package
+    /// Extract a .zex package.
     Unpack {
         file: PathBuf,
 
@@ -53,24 +47,21 @@ pub enum Command {
         verify_only: bool,
     },
 
-    /// Verify signature and integrity of a .zex package
+    /// Verify signature and integrity of a .zex package.
     Verify { file: PathBuf },
 
-    /// Show detailed package information
+    /// Show detailed package information.
     Inspect { file: PathBuf },
 
-    /// Generate a standalone Ed25519 keypair and print both halves.
-    /// NOT used by `pack` — every pack run generates and signs with its
-    /// own fresh, ephemeral keypair internally and never persists it;
-    /// this subcommand is only for anyone who separately needs a real
-    /// keypair for some other purpose.
+    /// Generate an Ed25519 keypair.
     Keygen {
-        /// Where to write the 32-byte hex secret key.
+        /// Secret key output destination.
         #[arg(short = 'o', long = "output", default_value = "signing.key")]
         output: PathBuf,
 
-        /// Overwrite an existing key file if one is already there.
+        /// Overwrite destination file if it exists.
         #[arg(long, default_value_t = false)]
         force: bool,
     },
 }
+

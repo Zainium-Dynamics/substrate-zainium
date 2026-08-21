@@ -1,14 +1,15 @@
-//! display.rs — Terminal output for substrate.
-//! Uses the standard Zainium ANSI palette — no external crates.
+// Terminal output formatting utilities.
 
-const G:   &str = "\x1b[92m";   // green  — success
-const P:   &str = "\x1b[95m";   // purple — package name
-const B:   &str = "\x1b[96m";   // blue   — values
-const Y:   &str = "\x1b[93m";   // yellow — warnings
-const R:   &str = "\x1b[91m";   // red    — errors
+
+const G:   &str = "\x1b[92m";
+const P:   &str = "\x1b[95m";
+const B:   &str = "\x1b[96m";
+const Y:   &str = "\x1b[93m";
+const R:   &str = "\x1b[91m";
 const DIM: &str = "\x1b[2m";
 const BLD: &str = "\x1b[1m";
 const RST: &str = "\x1b[0m";
+
 
 pub fn title(msg: &str) {
     println!("\n {BLD}{G}substrate{RST} {G}— {msg}{RST}");

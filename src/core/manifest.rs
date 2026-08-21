@@ -1,18 +1,10 @@
-//! manifest.rs — ZexTomlManifest — the canonical manifest.toml schema.
-//!
-//! This is the SINGLE manifest structure used by both:
-//!   • `substrate pack`  (writer)
-//!   • `zex install`   (reader, via zex_manifest.rs)
-//!   • `zex syshub --u` (reader, via syscore.rs)
-//!
-//! On-disk format: TOML (not JSON). Always at the tar root as `manifest.toml`.
+// manifest.toml schema and serialization for .zex packages.
+
 
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path};
 use crate::error::{Result, ZexError};
 use crate::core::packer::PackOptions;
-
-// ── Top-level manifest ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZexTomlManifest {
@@ -44,22 +36,12 @@ pub struct PackageMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edition:       Option<String>,
 
-    // Cryptographic fields — all three written by `substrate pack`, all
-    // three empty in an author-written source manifest. `pack` generates
-    // a fresh, ephemeral Ed25519 keypair for every single build (never
-    // persisted to disk or compiled into the binary), signs with it once,
-    // and embeds the resulting public key here too — since nothing durable
-    // holds the private key, `ed25519_pubkey` is the *only* way anyone can
-    // ever verify `ed25519_sig` later. That makes this a self-contained
-    // integrity check (this exact manifest+payload combination matches
-    // what was signed, against the key sitting right here) rather than a
-    // publisher-authenticity signature from one fixed, known identity.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ed25519_sig:   Option<String>,   // hex Ed25519 signature over blake3 (below)
+    pub ed25519_sig:   Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ed25519_pubkey: Option<String>,  // hex — the ephemeral key's public half
+    pub ed25519_pubkey: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub blake3:        Option<String>,   // hex Blake3 over sorted payload files
+    pub blake3:        Option<String>,
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags:          Vec<String>,
@@ -70,31 +52,21 @@ pub struct PackageMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requires_syshub: Option<String>,
 
-    /// Skip `elfpatch`'s interpreter/RPATH rewrite entirely for this
-    /// package. For self-hosting toolchain packages (e.g. a native
-    /// gcc-musl-cross build) that already compiled themselves with the
-    /// correct final interpreter/RPATH baked in — rewriting it generically
-    /// is redundant at best, wrong at worst. Default `false`: regular
-    /// userland packages are unaffected and still get patched.
     #[serde(default)]
     pub native: bool,
 }
 
-/// [install] — maps payload/ subdirs to absolute on-disk destinations.
-/// ALL paths MUST begin with /overlayer/.
+// Destination map for payload subdirectories under /overlayer/.
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct InstallMap {
-    /// Flat key=value: payload_subdir → absolute_dest
-    /// e.g. bin = "/overlayer/zexlib/union/bin"
     #[serde(flatten)]
     pub paths: HashMap<String, String>,
 
-    /// If true, installs into /overlayer/syshub/ (syshub packages only)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub _syshub: bool,
 }
 
-/// [remove] — exact file list written by installer, used by `zex remove`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RemoveMap {
     #[serde(default)] pub files:    Vec<String>,
@@ -129,8 +101,6 @@ impl HookMap {
     }
 }
 
-// ── Per-file entry (for security report) ─────────────────────────────────────
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileEntry {
     pub path:   String,
@@ -139,11 +109,7 @@ pub struct FileEntry {
     pub sha256: String,
 }
 
-// ── Generator ─────────────────────────────────────────────────────────────────
-
 impl ZexTomlManifest {
-    /// Generate a minimal manifest from source directory structure + pack opts.
-    /// Used when the package author has not provided a manifest.toml.
     pub fn generate(source_dir: &Path, opts: &PackOptions) -> Result<Self> {
         let name = source_dir
             .file_name()
@@ -151,7 +117,6 @@ impl ZexTomlManifest {
             .unwrap_or("package")
             .to_string();
 
-        // Auto-detect install paths from payload/ subdirectories
         let payload_dir = source_dir.join("payload");
         let mut install_paths = HashMap::new();
 
@@ -183,7 +148,6 @@ impl ZexTomlManifest {
         })
     }
 
-    /// Validate that all install paths start with /overlayer/ and contain no traversal.
     pub fn validate_paths(&self) -> Result<()> {
         for (key, dest) in &self.install.paths {
             if key == "_syshub" { continue; }
@@ -216,3 +180,4 @@ impl ZexTomlManifest {
         Ok(())
     }
 }
+

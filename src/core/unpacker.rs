@@ -9,9 +9,8 @@ pub struct UnpackResult {
     pub files_extracted: usize,
 }
 
-/// Extract a parsed .zex package to `dest_dir`. Verifies signature first
-/// (hard requirement, not optional) and re-checks manifest integrity
-/// against the freshly extracted files before declaring success.
+// Extract a parsed .zex package to dest_dir.
+
 pub fn unpack(
     parsed: &ParsedZex,
     dest_dir: &Path,
@@ -20,7 +19,7 @@ pub fn unpack(
     let sig_ok = verifier::verify_signature(parsed, public_key)?;
     if !sig_ok {
         return Err(ZexError::SignatureInvalid(
-            "package signature does not match its contents".into(),
+            "package signature mismatch".into(),
         ));
     }
 
@@ -32,7 +31,7 @@ pub fn unpack(
             .strip_prefix("payload/")
             .ok_or_else(|| {
                 ZexError::InvalidFormat(format!(
-                    "payload entry missing payload/ prefix: {archive_path}"
+                    "invalid payload path: {archive_path}"
                 ))
             })?;
 
@@ -42,15 +41,8 @@ pub fn unpack(
         }
 
         if let Some(link_target) = target {
-            // Recreate the symlink itself rather than writing its (empty)
-            // body as a regular file — e.g. musl's
-            // ld-musl-x86_64.so.1 -> libc.so loader symlink, which every
-            // musl-linked binary's PT_INTERP points at.
             #[cfg(unix)]
             {
-                // A previous unpack (or a stale extraction) may have left
-                // something at this path — symlink() fails if the target
-                // already exists.
                 let _ = std::fs::remove_file(&safe_path);
                 std::os::unix::fs::symlink(link_target, &safe_path)
                     .map_err(ZexError::Io)?;
@@ -60,10 +52,6 @@ pub fn unpack(
         }
 
         std::fs::write(&safe_path, bytes).map_err(ZexError::Io)?;
-        // Confirmed live: without this, every unpacked file — including
-        // binaries — landed as -rw-r--r--, unusable until manually
-        // chmod'd. Same class of bug found and fixed in zex's own
-        // extract_adb this session.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

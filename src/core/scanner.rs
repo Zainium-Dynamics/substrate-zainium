@@ -1,11 +1,5 @@
-//! Structural integrity checks performed at pack/unpack time.
-//!
-//! IMPORTANT: this module does NOT implement malware signature
-//! detection or heuristic antivirus scanning. It performs concrete,
-//! verifiable structural checks:
-//!   - every file in the archive matches its declared manifest entry & hash
-//!   - no unexpected setuid/setgid bits are present
-//! Reports describe exactly these checks, not broader "malware" coverage.
+// Structural integrity checks for .zex packages.
+
 
 use crate::core::manifest::FileEntry;
 use crate::error::{Result, ZexError};
@@ -35,10 +29,8 @@ pub enum CheckOutcome {
     Failed,
 }
 
-/// Verify that every manifest entry's declared hash matches the actual
-/// file on disk under `root`. Used both at pack time (sanity check
-/// right before compressing) and conceptually at unpack time against
-/// extracted files.
+// Verify manifest file entry hashes against files on disk.
+
 pub fn verify_manifest_integrity(
     root: &Path,
     files: &[FileEntry],
@@ -70,16 +62,13 @@ pub fn verify_manifest_integrity(
 
     Ok(ManifestIntegrityResult {
         result,
-        description:
-            "Every file in archive matches a manifest entry and hash".to_string(),
+        description: "Manifest integrity checked".to_string(),
         mismatches,
     })
 }
 
-/// Audit permission bits across the package tree, flagging any
-/// setuid/setgid files. These aren't automatically rejected (some
-/// legitimate tools need them) but are always surfaced in the report
-/// so a human reviewer sees them.
+// Audit file permissions for setuid/setgid bits.
+
 pub fn audit_permissions(root: &Path) -> Result<PermissionAuditResult> {
     let mut setuid_files = Vec::new();
 
@@ -103,8 +92,9 @@ pub fn audit_permissions(root: &Path) -> Result<PermissionAuditResult> {
     }
 
     Ok(PermissionAuditResult {
-        result: CheckOutcome::Passed, // informational, not a hard failure
+        result: CheckOutcome::Passed,
         setuid_files,
-        description: "No unexpected setuid/setgid bits found".to_string(),
+        description: "Permission audit completed".to_string(),
     })
 }
+

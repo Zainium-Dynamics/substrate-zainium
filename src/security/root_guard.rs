@@ -1,16 +1,11 @@
-//! Enforces Zainium OS's filesystem layout policy at pack time.
-//!
-//! Zainium OS does not use the /usr merge. Any package whose archive
-//! contains a `usr/` path, or whose text content references a `/usr/`
-//! style path, does not represent a valid Zainium root and is rejected
-//! before compression or signing happens.
+// Layout policy enforcement.
+
 
 use crate::error::{Result, ZexError};
 use crate::utils::paths::{normalize_archive_path, references_usr_merge};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// Top-level directories considered valid on a Zainium root.
 pub const ALLOWED_TOP_LEVEL: &[&str] = &[
     "bin", "sbin", "lib", "etc", "share", "var", "opt", "boot", "root", "home",
 ];
@@ -44,10 +39,6 @@ pub enum CheckOutcome {
     Failed,
 }
 
-/// File extensions / known filenames treated as text and therefore
-/// eligible for content scanning. Binaries are intentionally excluded —
-/// string-matching inside compiled binaries is unreliable and produces
-/// false positives, so we rely on the path-structure check for them.
 const TEXT_EXTENSIONS: &[&str] = &[
     "sh", "bash", "zsh", "conf", "cfg", "ini", "toml", "yaml", "yml", "json",
     "py", "pl", "rb", "service", "rules", "desktop", "txt", "md", "env",
@@ -67,16 +58,12 @@ fn is_text_candidate(path: &Path) -> bool {
     false
 }
 
-/// Check a single archive-relative path against the layout policy.
-/// Returns Err with a human-readable rejection message if it violates
-/// the no-/usr-merge rule, or if its top-level directory is unrecognized.
 pub fn check_path(raw_path: &str) -> Result<String> {
     let normalized = normalize_archive_path(raw_path)?;
 
     if references_usr_merge(&normalized) {
         return Err(ZexError::LayoutViolation(format!(
-            "path '{}' found. Zainium OS does not use the /usr merge — \
-             this package does not represent a valid Zainium root layout.",
+            "path '{}' found: Zainium OS layout policy rejects /usr merge paths.",
             normalized
         )));
     }
@@ -84,9 +71,6 @@ pub fn check_path(raw_path: &str) -> Result<String> {
     Ok(normalized)
 }
 
-/// Walk a source directory and validate every entry's path against the
-/// layout policy. Returns Ok(()) only if every path passes. On the first
-/// violation, returns an error describing exactly which path failed.
 pub fn check_directory_layout(root: &Path) -> Result<LayoutCheckResult> {
     let mut rejected = Vec::new();
 
@@ -118,10 +102,6 @@ pub fn check_directory_layout(root: &Path) -> Result<LayoutCheckResult> {
     }
 }
 
-/// Scan text-like files under `root` for literal `/usr/` or `usr/` path
-/// references in their content. This catches scripts/configs that
-/// hardcode /usr paths even if the package's own directory tree is
-/// laid out correctly.
 pub fn scan_content_for_usr_refs(root: &Path) -> Result<ContentScanResult> {
     let mut files_scanned = 0usize;
     let mut matches = Vec::new();
@@ -136,7 +116,7 @@ pub fn scan_content_for_usr_refs(root: &Path) -> Result<ContentScanResult> {
 
         let content = match std::fs::read_to_string(entry.path()) {
             Ok(c) => c,
-            Err(_) => continue, // not valid UTF-8 text, skip (treated as binary)
+            Err(_) => continue,
         };
         files_scanned += 1;
 
@@ -158,8 +138,7 @@ pub fn scan_content_for_usr_refs(root: &Path) -> Result<ContentScanResult> {
     }
 
     let result = ContentScanResult {
-        description:
-            "Text files scanned for literal '/usr' path references".to_string(),
+        description: "Text files scanned for /usr path references".to_string(),
         files_scanned,
         matches,
     };
@@ -179,23 +158,8 @@ pub fn scan_content_for_usr_refs(root: &Path) -> Result<ContentScanResult> {
     Ok(result)
 }
 
-/// Full layout policy enforcement: structure + content. Call this before
-/// any compression/signing step. Returns the passing reports on success,
-/// or an error describing the violation on failure (pack must abort).
-///
-/// `root` is the *package source dir* (containing `manifest.toml` +
-/// `payload/`), not the payload itself — but `check_directory_layout`
-/// must walk `root/payload`, not `root`, or the check is blind to the
-/// only place a `/usr` merge violation can actually occur. Confirmed
-/// live: a `payload/usr/bin/badfile` packed clean, reported "PASSED — no
-/// /usr merge references," because `references_usr_merge` only matches a
-/// path that *starts with* `"usr/"`, and every real entry's path here was
-/// `source_dir`-relative (`"payload/usr/bin/badfile"`, which doesn't
-/// start with `"usr/"` — it starts with `"payload/"`) rather than
-/// `payload/`-relative (`"usr/bin/badfile"`, which does). Content
-/// scanning stays on the full `root` — that's about text hardcoding
-/// `/usr/` paths anywhere (hook scripts, docs), not directory structure,
-/// so it isn't affected by the same bug.
+// Enforce layout policy across package directory structure and file contents.
+
 pub fn enforce_layout_policy(
     root: &Path,
 ) -> Result<(LayoutCheckResult, ContentScanResult)> {
@@ -204,3 +168,4 @@ pub fn enforce_layout_policy(
     let content = scan_content_for_usr_refs(root)?;
     Ok((layout, content))
 }
+

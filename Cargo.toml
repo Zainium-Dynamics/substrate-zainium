@@ -1,8 +1,9 @@
 [package]
 name = "substrate-zainium"
-version = "1.2.1"
-edition = "2021"
-description = "Standalone package builder/verifier — pack, unpack, verify, inspect"
+version = "2.0.0"
+
+edition = "2024"
+description = "Standalone package builder — pack, unpack, verify, inspect"
 license = "MIT"
 authors = ["Ali Zain <alizain@zainiumdynamics.tech>"]
 repository = "https://gitlab.com/alizain.arch/substrate"

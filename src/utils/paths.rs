@@ -1,9 +1,7 @@
 use crate::error::{Result, ZexError};
 use std::path::{Component, Path, PathBuf};
 
-/// Normalize a path the way it will be stored in the .zex archive:
-/// always relative, no leading slash, no `.` or `..` components.
-/// Rejects path traversal attempts (`../../etc/passwd` style).
+// Normalize a path for archive storage.
 pub fn normalize_archive_path(raw: &str) -> Result<String> {
     let p = Path::new(raw);
     let mut parts = Vec::new();
@@ -20,7 +18,7 @@ pub fn normalize_archive_path(raw: &str) -> Result<String> {
                 )));
             }
             Component::CurDir | Component::RootDir | Component::Prefix(_) => {
-                // skip leading '.', '/', drive prefixes - we want a clean relative path
+                // skip leading '.', '/', drive prefixes
             }
         }
     }
@@ -32,16 +30,14 @@ pub fn normalize_archive_path(raw: &str) -> Result<String> {
     Ok(parts.join("/"))
 }
 
-/// Returns true if the normalized archive path's top-level directory
-/// is `usr` in any spelling (usr/, ./usr/, /usr/, etc. all normalize to
-/// starting with "usr/" or being exactly "usr").
+// Check if top-level directory matches usr.
 pub fn references_usr_merge(normalized_path: &str) -> bool {
     normalized_path == "usr"
         || normalized_path.starts_with("usr/")
 }
 
-/// Join an extraction root with an archive-relative path safely,
-/// guaranteeing the result stays inside `root`.
+// Safe join for extraction root.
+
 pub fn safe_join(root: &Path, archive_path: &str) -> Result<PathBuf> {
     let normalized = normalize_archive_path(archive_path)?;
     Ok(root.join(normalized))

@@ -14,28 +14,27 @@ Builds `<directory>` into a `.zex` package. That's the only output — no sideca
 | `-v, --version <version>` | required | Package version. Overrides `manifest.toml`'s `package.version`. |
 | `--description <text>` | `""` | Overrides `manifest.toml`'s `package.description` (only if non-empty). |
 | `--features <a,b,c>` | `""` | Comma-separated feature list. |
-| `--requires-syshub <value>` | current year, e.g. `2026` | Required syshub release. Always overrides `manifest.toml`'s field — there's no "compute the right value" logic beyond the year default, so pass this explicitly if the package needs a specific syshub release. |
+| `--requires-syshub <value>` | current year, e.g. `2026` | Required syshub release. Always overrides `manifest.toml`'s field. |
 | `--install-root <path>` | `/overlayer/zexlib` | Union-layer root used to render install paths only when `<directory>` has no `manifest.toml` of its own (auto-generated case). A real `manifest.toml` ignores this — its own `[install]` map wins. |
-| `--report` | `false` | Also write `<out>.security-report.json` — the same report embedded in the `.zex`, dumped to disk for tooling that wants it separately. |
-| `-o, --output <path>` | `<name>-<version>.zex` | Output path. Hyphen-separated, matching the Zainium ledger naming convention (e.g. `vim-9.1.1366.zex`) — not an underscore. |
+| `-o, --output <path>` | `<name>-<version>.zex` | Output path. Hyphen-separated, matching the Zainium ledger naming convention (e.g. `vim-9.1.1366.zex`). |
 
 Example:
 
-```
-substrate pack -v 2.3.0 --requires-syshub 2026 ./build/myapp -o myapp-2.3.0.zex
+```bash
+substrate pack -v 2.0.0 --requires-syshub 2026 ./build/myapp -o myapp-2.0.0.zex
 ```
 
 ## `substrate unpack <file> -o <dir>`
 
-Verifies the Ed25519 signature (hard requirement, not optional), extracts `payload/`'s contents into `<dir>` with correct file modes, writes `<dir>/security-report.json`.
+Verifies the Ed25519 signature (hard requirement, not optional) and extracts `payload/`'s contents into `<dir>` with correct file modes.
 
 | Flag | Meaning |
 |---|---|
 | `-o, --output <dir>` | Destination directory. Defaults to the package name. |
 | `--verify-only` | Check the signature without extracting anything. |
 
-```
-substrate unpack myapp_2.3.0.zex -o ./extracted
+```bash
+substrate unpack myapp-2.0.0.zex -o ./extracted
 ```
 
 ## `substrate verify <file>`
@@ -44,15 +43,15 @@ Shorthand for `substrate unpack <file> --verify-only`.
 
 ## `substrate inspect <file>`
 
-Prints the manifest and embedded security report without extracting anything.
+Prints the manifest and embedded security status without extracting anything.
 
-```
-substrate inspect myapp_2.3.0.zex
+```bash
+substrate inspect myapp-2.0.0.zex
 ```
 
 ## `substrate keygen -o <path>`
 
-Generates a standalone Ed25519 keypair and writes the 32-byte hex secret key to `<path>`. **Not used by `pack`** — every pack run generates and signs with its own fresh, ephemeral keypair internally and never persists it. This subcommand exists only for anyone who separately needs a real, reusable keypair.
+Generates a standalone Ed25519 keypair and writes the 32-byte hex secret key to `<path>`. **Not used by `pack`** — every pack run generates and signs with its own fresh, ephemeral keypair internally and never persists it.
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -64,7 +63,7 @@ Generates a standalone Ed25519 keypair and writes the 32-byte hex secret key to 
 ```toml
 [package]
 name             = "myapp"
-version          = "1.0.0"
+version          = "2.0.0"
 description      = "..."
 license          = "MIT"
 maintainer       = "Name <email>"

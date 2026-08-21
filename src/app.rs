@@ -4,17 +4,12 @@ use crate::cli::{Cli, Command};
 use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use crate::core::{packer, unpacker, verifier};
-use crate::security::audit_common::ToolOutcome;
 use crate::security::signer::Signer128;
 use crate::ui::display;
 
-/// Generate a fresh Ed25519 keypair for one pack run. Never written to
-/// disk, never compiled into the binary, never reused across runs — it
-/// exists only in memory for the duration of `cmd_pack`, signs the
-/// payload once, and is dropped. The public half travels with the
-/// package (`manifest.package.ed25519_pubkey`, set in `packer::pack`);
-/// that embedded pubkey is the only way anyone verifies the signature
-/// later — there's no external key store to check against.
+
+// Generate ephemeral Ed25519 keypair for signing.
+
 fn fresh_ephemeral_signer() -> Signer128 {
     let signing_key = SigningKey::generate(&mut OsRng);
     Signer128::from_bytes(&signing_key.to_bytes())
@@ -30,10 +25,10 @@ pub fn run(raw_args: Vec<String>) {
             description,
             features,
             requires_syshub,
-            report,
             install_root,
             output,
-        } => cmd_pack(directory, version, description, features, requires_syshub, report, install_root, output),
+        } => cmd_pack(directory, version, description, features, requires_syshub, install_root, output),
+
 
         Command::Unpack { file, output, verify_only } =>
             cmd_unpack(file, output, verify_only),
@@ -59,7 +54,6 @@ fn cmd_pack(
     description: String,
     features: Vec<String>,
     requires_syshub: Option<String>,
-    save_report: bool,
     install_root: String,
     output: Option<std::path::PathBuf>,
 ) -> crate::error::Result<()> {
@@ -69,15 +63,11 @@ fn cmd_pack(
         .unwrap_or_else(|| "package".to_string());
 
     let output_path = output.unwrap_or_else(|| {
-        // Hyphen, not underscore — matches the real Zainium package naming
-        // convention (see zex_ledger-x86_64.toml samples: vim-9.1.1366.zex,
-        // rust-1.87.0.zex), not just this tool's own prior default.
         std::path::PathBuf::from(format!("{}-{}.zex", name, version))
     });
 
-    display::title(" Zainium Dynamics - Secure Package Builder");
+    display::title("Zainium Package Builder");
 
-    // ── step 1: count files ──────────────────────────────────────────
     display::step("Scanning source directory...");
     let file_count = walkdir::WalkDir::new(&directory)
         .into_iter()
@@ -86,14 +76,12 @@ fn cmd_pack(
         .count();
     display::kv("Files found", &file_count.to_string());
 
-    // ── step 2: signing is always-on, not user configurable ──────────
-    display::step("Cryptographic signing (background, always-on)...");
-    display::ok_kv("blake3",   "digest pipeline active");
-    display::ok_kv("sha512",   "digest pipeline active");
-    display::ok_kv("ed25519",  "fresh ephemeral keypair generated — never persisted");
+    display::step("Initializing cryptographic signers...");
+    display::ok_kv("blake3",   "active");
+    display::ok_kv("sha512",   "active");
+    display::ok_kv("ed25519",  "ephemeral keypair generated");
 
-    // ── step 3: run pack (layout + manifest + rust/C audit + secrets) ─
-    display::step("Running security passes (layout · secrets · Rust audit · C audit)...");
+    display::step("Running security passes...");
 
     let opts = packer::PackOptions {
         version: version.clone(),
@@ -117,94 +105,44 @@ fn cmd_pack(
 
     let rep = &pack_result.report;
 
-    // Layout
-    display::ok_kv("Layout policy", "PASSED — no /usr merge references");
+    display::ok_kv("Layout policy", "PASSED");
 
-    // Secrets scan
     let sc = &rep.secrets_scan;
     if sc.findings.is_empty() {
         display::ok_kv("Secrets scan",
-            &format!("{} text files scanned — no hardcoded credentials", sc.files_scanned));
+            &format!("{} files scanned", sc.files_scanned));
     } else {
-        // Can't reach here (pack would have returned Err), but be defensive:
         display::fail_kv("Secrets scan",
-            &format!("{} finding(s) — should have blocked!", sc.findings.len()));
+            &format!("{} finding(s)", sc.findings.len()));
     }
 
-    // Rust audit
-    let ra = &rep.rust_audit;
-    if ra.applicable {
-        display::kv("Rust source", &format!("{:?}", ra.language));
-        display::kv("Build kind",  &format!("{:?}", ra.build_kind));
-        if let Some(n) = ra.unsafe_block_count {
-            display::kv("Unsafe expressions", &n.to_string());
-        }
-        if !ra.fuzz_harness_present {
-            display::kv("Fuzz harness", "ABSENT — consider `cargo fuzz init`");
-        } else {
-            display::ok_kv("Fuzz harness", "present");
-        }
-        for t in &ra.tools {
-            show_tool_result(t.outcome, &t.tool, &t.summary);
-        }
-    }
-
-    // C/C++ audit
-    let ca = &rep.c_audit;
-    if ca.applicable {
-        display::kv("C/C++ source", "detected");
-        for t in &ca.tools {
-            show_tool_result(t.outcome, &t.tool, &t.summary);
-        }
-    }
-
-    // Permission audit
     if rep.permission_audit.setuid_files.is_empty() {
-        display::ok_kv("Permission audit", "no setuid/setgid files");
+        display::ok_kv("Permission audit", "clean");
     } else {
         display::fail_kv(
             "Permission audit",
-            &format!("{} setuid/setgid file(s) — review mandatory",
+            &format!("{} setuid/setgid file(s)",
                      rep.permission_audit.setuid_files.len()),
         );
     }
 
-    // ── step 4: manifest ──────────────────────────────────────────────
-    display::step("Manifest sealed...");
+    display::step("Sealing manifest...");
     display::kv("Name",    &name);
     display::kv("Version", &version);
     if !description.is_empty() {
         display::kv("Description", &description);
     }
 
-    // ── step 5: output ────────────────────────────────────────────────
     display::success("Package built successfully");
-    display::kv("Output (.zex)",     &output_path.display().to_string());
+    display::kv("Output", &output_path.display().to_string());
     display::kv("Compressed",
         &format!("{:.1} MB", pack_result.compressed_size as f64 / 1_048_576.0));
     display::kv("Uncompressed",
         &format!("{:.1} MB", pack_result.uncompressed_size as f64 / 1_048_576.0));
 
-    display::kv("Inspect with",
-        &format!("substrate inspect {}", output_path.display()));
-
-    // Optionally write report JSON to disk
-    if save_report {
-        let report_path = output_path.with_extension("security-report.json");
-        std::fs::write(&report_path, rep.to_json_pretty()?)?;
-        display::ok_kv("Report saved", &report_path.display().to_string());
-    }
-
     Ok(())
 }
 
-fn show_tool_result(outcome: ToolOutcome, tool: &str, summary: &str) {
-    match outcome {
-        ToolOutcome::Passed  => display::ok_kv(tool, summary),
-        ToolOutcome::Failed  => display::fail_kv(tool, summary),
-        ToolOutcome::Skipped => display::kv(tool, &format!("SKIPPED — {summary}")),
-    }
-}
 
 // ── Unpack / Verify ──────────────────────────────────────────────────────────
 
@@ -215,19 +153,15 @@ fn cmd_unpack(
 ) -> crate::error::Result<()> {
     let buf = std::fs::read(&file)?;
     let parsed = verifier::parse(buf)?;
-    // No external trust store to check against — every package embeds the
-    // ephemeral public key it was actually signed with, right in its own
-    // manifest.toml (see manifest.rs::PackageMeta::ed25519_pubkey). Verify
-    // against exactly that, not anything loaded from disk or environment.
     let pubkey_hex = parsed.manifest.package.ed25519_pubkey.as_deref().ok_or_else(|| {
         crate::error::ZexError::SignatureInvalid(
-            "manifest.toml has no ed25519_pubkey — package was never signed by substrate pack".into(),
+            "manifest.toml missing ed25519_pubkey".into(),
         )
     })?;
     let pubkey_bytes = hex::decode(pubkey_hex)
         .map_err(|e| crate::error::ZexError::Other(format!("invalid ed25519_pubkey hex: {e}")))?;
     let pubkey_arr: [u8; 32] = pubkey_bytes.as_slice().try_into().map_err(|_| {
-        crate::error::ZexError::Other("ed25519_pubkey must be exactly 32 bytes".into())
+        crate::error::ZexError::Other("ed25519_pubkey must be 32 bytes".into())
     })?;
     let pubkey = ed25519_dalek::VerifyingKey::from_bytes(&pubkey_arr)
         .map_err(|e| crate::error::ZexError::Other(format!("invalid ed25519_pubkey: {e}")))?;
@@ -243,24 +177,24 @@ fn cmd_unpack(
         if sig_ok {
             display::ok_kv("blake3 / sha512", "Matched");
             display::ok_kv("ed25519", "Valid");
-            display::success("Package is authentic and untampered.");
+            display::success("Package signature verified.");
         } else {
             display::fail_kv("Signature", "INVALID");
             return Err(crate::error::ZexError::SignatureInvalid(
-                "signature does not match package contents".into(),
+                "signature verification failed".into(),
             ));
         }
         return Ok(());
     }
 
-    display::title(&format!("Unpacking {}...", file.display()));
+    display::title(&format!("Unpacking {}", file.display()));
 
-    display::step("Verifying signature (blake3 + sha512 + ed25519)...");
+    display::step("Verifying signature...");
     let sig_ok = verifier::verify_signature(&parsed, &pubkey)?;
     if !sig_ok {
         display::fail_kv("ed25519", "INVALID");
         return Err(crate::error::ZexError::SignatureInvalid(
-            "package signature does not match its contents".into(),
+            "package signature mismatch".into(),
         ));
     }
     display::ok_kv("ed25519", "Valid");
@@ -274,28 +208,24 @@ fn cmd_unpack(
 
     let dest = output.unwrap_or_else(|| std::path::PathBuf::from(&parsed.manifest.package.name));
 
-    display::step("Extracting files...");
+    display::step("Extracting payload...");
     let unpack_result = unpacker::unpack(&parsed, &dest, &pubkey)?;
     display::kv("Files extracted", &unpack_result.files_extracted.to_string());
 
-    display::step("Post-unpack integrity check...");
+    display::step("Post-unpack verification...");
     display::ok_kv("Manifest integrity", "PASSED");
     if !parsed.report.permission_audit.setuid_files.is_empty() {
         display::fail_kv(
             "Permission audit",
-            &format!("{} setuid/setgid file(s) — review before use",
+            &format!("{} setuid/setgid file(s)",
                      parsed.report.permission_audit.setuid_files.len()),
         );
     } else {
-        display::ok_kv("Permission audit", "No setuid/setgid files");
+        display::ok_kv("Permission audit", "clean");
     }
 
-    let report_path = dest.join("security-report.json");
-    std::fs::write(&report_path, parsed.report.to_json_pretty()?)?;
-
-    display::success("Package unpacked successfully.");
+    display::success("Package extracted.");
     display::kv("Destination", &dest.display().to_string());
-    display::kv("Report",      &report_path.display().to_string());
 
     Ok(())
 }
@@ -308,7 +238,6 @@ fn cmd_inspect(file: std::path::PathBuf) -> crate::error::Result<()> {
 
     display::title(&format!("Inspecting {}", file.display()));
 
-    // Manifest
     display::step("Manifest");
     display::kv("Name",              &parsed.manifest.package.name);
     display::kv("Version",           &parsed.manifest.package.version);
@@ -321,89 +250,52 @@ fn cmd_inspect(file: std::path::PathBuf) -> crate::error::Result<()> {
     display::kv("Blake3",            parsed.manifest.package.blake3.as_deref().unwrap_or("n/a"));
     display::kv("Ed25519",           if parsed.manifest.package.ed25519_sig.is_some() { "present" } else { "missing" });
 
-    // Security report summary
-    display::step("Security report (embedded)");
-
+    display::step("Security Report");
     let rep = &parsed.report;
 
-    // Layout
     display::ok_kv("Layout check", &format!("{:?}", rep.layout_check.result));
 
-    // Content scan
     if rep.content_scan.matches.is_empty() {
         display::ok_kv("Content scan",
-            &format!("{} text files, 0 /usr refs", rep.content_scan.files_scanned));
+            &format!("{} text files scanned", rep.content_scan.files_scanned));
     } else {
         display::fail_kv("Content scan",
-            &format!("{} /usr reference(s) found", rep.content_scan.matches.len()));
+            &format!("{} reference(s) found", rep.content_scan.matches.len()));
     }
 
-    // Secrets
     let sc = &rep.secrets_scan;
     if sc.findings.is_empty() {
         display::ok_kv("Secrets scan",
-            &format!("{} files, clean", sc.files_scanned));
+            &format!("{} files clean", sc.files_scanned));
     } else {
         display::fail_kv("Secrets scan",
-            &format!("{} finding(s) — this package should have been blocked!",
-                     sc.findings.len()));
+            &format!("{} finding(s)", sc.findings.len()));
         for f in &sc.findings {
             eprintln!("     {}:{} [{}]", f.file, f.line, f.pattern);
         }
     }
 
-    // Permission audit
     if rep.permission_audit.setuid_files.is_empty() {
-        display::ok_kv("Permission audit", "no setuid/setgid");
+        display::ok_kv("Permission audit", "clean");
     } else {
         display::fail_kv("Permission audit",
-            &format!("{} setuid/setgid file(s): {}",
-                     rep.permission_audit.setuid_files.len(),
-                     rep.permission_audit.setuid_files.join(", ")));
-    }
-
-    // Rust audit
-    let ra = &rep.rust_audit;
-    if ra.applicable {
-        display::step("Rust security audit");
-        display::kv("Language",    &format!("{:?}", ra.language));
-        display::kv("Build kind",  &format!("{:?}", ra.build_kind));
-        if let Some(n) = ra.unsafe_block_count {
-            display::kv("Unsafe expressions", &n.to_string());
-        }
-        display::kv("Fuzz harness",
-            if ra.fuzz_harness_present { "present" } else { "ABSENT" });
-        for t in &ra.tools {
-            show_tool_result(t.outcome, &t.tool, &t.summary);
-        }
-    }
-
-    // C audit
-    let ca = &rep.c_audit;
-    if ca.applicable {
-        display::step("C/C++ static analysis");
-        for t in &ca.tools {
-            show_tool_result(t.outcome, &t.tool, &t.summary);
-        }
+            &format!("{} setuid/setgid file(s)",
+                     rep.permission_audit.setuid_files.len()));
     }
 
     Ok(())
 }
 
+
 // ── Keygen ───────────────────────────────────────────────────────────────────
 
-/// Generates a fresh Ed25519 keypair, writes the 32-byte hex secret to
-/// `output`, and prints the matching public (verifying) key — the half
-/// that gets distributed to zex-server (`trusted_signing_keys`) and to
-/// anything that needs to verify packages signed with this key. The
-/// secret half never leaves this machine.
 fn cmd_keygen(output: std::path::PathBuf, force: bool) -> crate::error::Result<()> {
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
 
     if output.exists() && !force {
         return Err(crate::error::ZexError::Other(format!(
-            "{} already exists — pass --force to overwrite (this would invalidate anything signed with the old key)",
+            "{} already exists — use --force to overwrite",
             output.display(),
         )));
     }
@@ -420,19 +312,9 @@ fn cmd_keygen(output: std::path::PathBuf, force: bool) -> crate::error::Result<(
         std::fs::set_permissions(&output, std::fs::Permissions::from_mode(0o600))?;
     }
 
-    display::success(&format!("Wrote new signing key to {}", output.display()));
-    println!();
-    println!("Public (verifying) key:");
-    println!("  {public_hex}");
-    println!();
-    println!("Note: `substrate pack` does NOT use this (or any persisted key) — every");
-    println!("pack run generates and signs with its own fresh, ephemeral keypair");
-    println!("internally, embeds the public half in the package's own manifest.toml,");
-    println!("and never persists the private half anywhere. This keypair is for some");
-    println!("other purpose you have in mind, not for feeding into `pack`.");
-    println!();
-    println!("Keep the file itself private if you do use it for something — anyone");
-    println!("with it can sign as this identity.");
+    display::success(&format!("Wrote key to {}", output.display()));
+    println!("Public Key: {public_hex}");
 
     Ok(())
 }
+

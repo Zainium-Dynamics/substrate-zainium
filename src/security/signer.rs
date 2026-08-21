@@ -9,14 +9,10 @@ pub struct SignatureBlock {
     pub blake3_digest:     String,
     pub sha512_digest:     String,
     pub ed25519_signature: Option<String>,
-    /// Blake3 over (manifest_toml_bytes ++ payload_blake3) — file-level integrity
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub sig_b3:            String,
 }
 
-/// Holds the keypair used by the Zainium official builder.
-/// In production this would be loaded from a secure key file, not
-/// generated at random — `from_bytes` / `load` is the real entry point.
 pub struct Signer128 {
     signing_key: SigningKey,
 }
@@ -32,19 +28,7 @@ impl Signer128 {
         hex::encode(self.signing_key.verifying_key().to_bytes())
     }
 
-    /// Signs a pre-computed digest — `data` is the caller's already-hashed
-    /// payload blake3 digest (its hex string's bytes), *not* raw payload
-    /// bytes to hash here. Signs `data` directly and records it verbatim as
-    /// `blake3_digest`.
-    ///
-    /// This used to call `blake3_hex(data)` again before signing, silently
-    /// hashing the hash: `packer.rs` passes `payload_blake3.as_bytes()`
-    /// (already a blake3 digest), so the stored `blake3_digest` field held
-    /// a hash-of-a-hash that could never match `verifier::verify_signature`'s
-    /// independently-recomputed payload blake3 — every real .zex signature
-    /// was unverifiable against its own signing key until this was fixed
-    /// (ported from the same fix already applied to the in-tree `zex fmt`
-    /// copy of this module).
+    // Sign payload digest and return a SignatureBlock.
     pub fn sign(&self, data: &[u8], signed_by: &str) -> Result<SignatureBlock> {
         let blake3_digest = String::from_utf8_lossy(data).into_owned();
         let sha512_digest = sha512_hex(data);
@@ -61,8 +45,8 @@ impl Signer128 {
     }
 }
 
-/// Verifies a signature block against the original pre-computed digest
-/// (`data`, matching `sign`'s contract above) and a known public key.
+// Verify signature block against payload digest and public key.
+
 pub fn verify(
     data: &[u8],
     block: &SignatureBlock,
@@ -92,3 +76,4 @@ pub fn verify(
 
     Ok(true)
 }
+
