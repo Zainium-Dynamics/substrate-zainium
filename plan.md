@@ -1,16 +1,15 @@
-# Substrate Architectural Roadmap (v2.0.0)
+# Substrate Architectural Roadmap
 
 ## Overview
 
-`substrate` is the official package builder and verifier for Zainium OS (`.zex` format).
+`substrate` is the official package builder for Zainium OS (`.zex` format).
 
 This document outlines the operational specification and future multi-format export capabilities for `.zex` packages.
 
-## Core Package Pipeline (v2.0.0)
+## Core Package Pipeline (
 
 1. **Source Inspection**: Validates payload structure and manifest configuration.
 2. **Security Integrity Passes**: Unconditional root policy validation (`/usr` merge rejection) and hardcoded secret scanning.
-3. **Binary Patching**: `oxipatch` dynamic linker and `$ORIGIN`-relative RPATH patching for musl-native executables.
 4. **Cryptographic Sealing**: Ephemeral Ed25519 signature generation and deterministic Blake3 hashing over manifest & payload.
 5. **Archive Packaging**: Native `zexc` (ZEX1 stream format) compression.
 
