@@ -37,15 +37,6 @@ pub fn pack(
     opts: &PackOptions,
     signer: &Signer128,
 ) -> Result<PackResult> {
-    let (layout_result, content_result) = root_guard::enforce_layout_policy(source_dir)?;
-
-    let secrets = secrets_scan::scan_secrets(source_dir);
-    if secrets.is_blocked() {
-        return Err(crate::error::ZexError::Other(
-            "secrets scan blocked packaging: hardcoded credentials found".into(),
-        ));
-    }
-
     let payload_dir = source_dir.join("payload");
 
     if !payload_dir.is_dir() {
@@ -82,7 +73,20 @@ pub fn pack(
         } else {
             crate::core::elfpatch::USERLAND_LIB_TARGET
         };
+        // shebang_fix must run before enforce_layout_policy below --
+        // otherwise a #!/usr/bin/env script gets blocked by the /usr
+        // scan before it ever gets the chance to be rewritten.
+        crate::core::shebang_fix::patch_payload_dir(&payload_dir)?;
         crate::core::elfpatch::patch_payload_dir(&payload_dir, &manifest.install.paths, lib_target)?;
+    }
+
+    let (layout_result, content_result) = root_guard::enforce_layout_policy(source_dir)?;
+
+    let secrets = secrets_scan::scan_secrets(source_dir);
+    if secrets.is_blocked() {
+        return Err(crate::error::ZexError::Other(
+            "secrets scan blocked packaging: hardcoded credentials found".into(),
+        ));
     }
 
     let mut payload_files: Vec<(String, Vec<u8>, Option<String>)> = Vec::new();
