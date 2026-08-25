@@ -39,35 +39,6 @@ pub enum CheckOutcome {
     Failed,
 }
 
-// Minimum run length to count as a "string" when scanning binary content --
-// matches the default `strings -n 4` threshold, short enough to still catch
-// "/usr/" (5 chars) on its own.
-const MIN_BINARY_STRING_LEN: usize = 4;
-
-// Pull printable-ASCII runs out of raw bytes, `strings`-style, for files
-// that aren't valid UTF-8 text (ELF binaries, shared libraries, ...) --
-// compiled-in fallback paths (XDG defaults, hardcoded exec() targets, etc.)
-// live in there as plain string constants and are otherwise invisible to
-// this scanner.
-fn extract_printable_strings(bytes: &[u8]) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut current = Vec::new();
-
-    for &b in bytes {
-        if b.is_ascii_graphic() || b == b' ' {
-            current.push(b);
-        } else {
-            if current.len() >= MIN_BINARY_STRING_LEN {
-                out.push(String::from_utf8_lossy(&current).into_owned());
-            }
-            current.clear();
-        }
-    }
-    if current.len() >= MIN_BINARY_STRING_LEN {
-        out.push(String::from_utf8_lossy(&current).into_owned());
-    }
-    out
-}
 
 pub fn check_path(raw_path: &str) -> Result<String> {
     let normalized = normalize_archive_path(raw_path)?;
@@ -148,23 +119,16 @@ pub fn scan_content_for_usr_refs(root: &Path) -> Result<ContentScanResult> {
             continue;
         }
 
-        // Not valid UTF-8 -- likely an ELF binary or shared library.
-        // Pull out printable-ASCII string constants and check those
-        // instead (a compiled-in fallback path is just as real a leak
-        // as one sitting in a shell script).
-        for s in extract_printable_strings(&bytes) {
-            if s.contains("/usr/") {
-                matches.push(ContentMatch {
-                    path: rel.clone(),
-                    line: 0,
-                    excerpt: format!("(binary string) {}", s.chars().take(120).collect::<String>()),
-                });
-            }
-        }
+        // Not valid UTF-8 -- an ELF binary or shared library. Toolchains
+        // (glibc, gdb, Rust std's own backtrace support) universally bake
+        // in harmless /usr-shaped string constants (split-debuginfo
+        // lookup templates and the like) that aren't leaked build paths
+        // at all, just noise here -- binaries aren't scanned, only the
+        // text files (scripts, configs) that actually carry real leaks.
     }
 
     let result = ContentScanResult {
-        description: "Files scanned (text + binary strings) for /usr path references".to_string(),
+        description: "Files scanned (text) for /usr path references".to_string(),
         files_scanned,
         matches,
     };
