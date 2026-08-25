@@ -39,23 +39,34 @@ pub enum CheckOutcome {
     Failed,
 }
 
-const TEXT_EXTENSIONS: &[&str] = &[
-    "sh", "bash", "zsh", "conf", "cfg", "ini", "toml", "yaml", "yml", "json",
-    "py", "pl", "rb", "service", "rules", "desktop", "txt", "md", "env",
-];
+// Minimum run length to count as a "string" when scanning binary content --
+// matches the default `strings -n 4` threshold, short enough to still catch
+// "/usr/" (5 chars) on its own.
+const MIN_BINARY_STRING_LEN: usize = 4;
 
-const TEXT_FILENAMES_NO_EXT: &[&str] = &["Makefile", "makefile", "Dockerfile"];
+// Pull printable-ASCII runs out of raw bytes, `strings`-style, for files
+// that aren't valid UTF-8 text (ELF binaries, shared libraries, ...) --
+// compiled-in fallback paths (XDG defaults, hardcoded exec() targets, etc.)
+// live in there as plain string constants and are otherwise invisible to
+// this scanner.
+fn extract_printable_strings(bytes: &[u8]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = Vec::new();
 
-fn is_text_candidate(path: &Path) -> bool {
-    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-        if TEXT_FILENAMES_NO_EXT.contains(&name) {
-            return true;
+    for &b in bytes {
+        if b.is_ascii_graphic() || b == b' ' {
+            current.push(b);
+        } else {
+            if current.len() >= MIN_BINARY_STRING_LEN {
+                out.push(String::from_utf8_lossy(&current).into_owned());
+            }
+            current.clear();
         }
     }
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        return TEXT_EXTENSIONS.contains(&ext.to_lowercase().as_str());
+    if current.len() >= MIN_BINARY_STRING_LEN {
+        out.push(String::from_utf8_lossy(&current).into_owned());
     }
-    false
+    out
 }
 
 pub fn check_path(raw_path: &str) -> Result<String> {
@@ -110,35 +121,50 @@ pub fn scan_content_for_usr_refs(root: &Path) -> Result<ContentScanResult> {
         if !entry.file_type().is_file() {
             continue;
         }
-        if !is_text_candidate(entry.path()) {
+        let path = entry.path();
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string();
+
+        let Ok(bytes) = std::fs::read(path) else { continue };
+        files_scanned += 1;
+
+        // Valid UTF-8 (scripts, configs, anything text -- no extension
+        // allowlist, so an extensionless launcher script like
+        // `start-cosmic` gets the same scrutiny as a `.sh` file) gets
+        // scanned line-by-line for a real excerpt + line number.
+        if let Ok(content) = std::str::from_utf8(&bytes) {
+            for (idx, line) in content.lines().enumerate() {
+                if line.contains("/usr/") || line.trim_start().starts_with("usr/") {
+                    matches.push(ContentMatch {
+                        path: rel.clone(),
+                        line: idx + 1,
+                        excerpt: line.trim().chars().take(120).collect(),
+                    });
+                }
+            }
             continue;
         }
 
-        let content = match std::fs::read_to_string(entry.path()) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        files_scanned += 1;
-
-        for (idx, line) in content.lines().enumerate() {
-            if line.contains("/usr/") || line.trim_start().starts_with("usr/") {
-                let rel = entry
-                    .path()
-                    .strip_prefix(root)
-                    .unwrap_or(entry.path())
-                    .to_string_lossy()
-                    .to_string();
+        // Not valid UTF-8 -- likely an ELF binary or shared library.
+        // Pull out printable-ASCII string constants and check those
+        // instead (a compiled-in fallback path is just as real a leak
+        // as one sitting in a shell script).
+        for s in extract_printable_strings(&bytes) {
+            if s.contains("/usr/") {
                 matches.push(ContentMatch {
-                    path: rel,
-                    line: idx + 1,
-                    excerpt: line.trim().chars().take(120).collect(),
+                    path: rel.clone(),
+                    line: 0,
+                    excerpt: format!("(binary string) {}", s.chars().take(120).collect::<String>()),
                 });
             }
         }
     }
 
     let result = ContentScanResult {
-        description: "Text files scanned for /usr path references".to_string(),
+        description: "Files scanned (text + binary strings) for /usr path references".to_string(),
         files_scanned,
         matches,
     };
