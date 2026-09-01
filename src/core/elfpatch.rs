@@ -133,12 +133,38 @@ pub fn patch_payload_dir(
             None => lib_target.to_string(),
         };
 
-        patch_one(path, &lib_rpath).map_err(|e| {
-            ZexError::Other(format!(
+        if let Err(e) = patch_one(path, &lib_rpath) {
+            // These variants can only come from ElfFile::open()/parse() —
+            // the very first thing patch_one does, before any write is
+            // attempted — so the file on disk is guaranteed untouched.
+            // Some toolchains (seen so far: meson install-strip on certain
+            // small PIE binaries) produce a technically-malformed but
+            // perfectly loadable ELF — e.g. a stale `.shstrtab` size in
+            // the section header table left over from stripping, which
+            // the kernel/dynamic linker never reads (only program headers
+            // matter at load time). Rather than aborting the whole payload
+            // over one such binary, skip patching just that file: it keeps
+            // whatever interpreter/RPATH its own build already produced
+            // instead of getting the Zainium ones rewritten in.
+            let skippable = matches!(
+                e,
+                oxipatch::Error::Malformed { .. }
+                    | oxipatch::Error::BadMagic { .. }
+                    | oxipatch::Error::UnsupportedClass { .. }
+                    | oxipatch::Error::UnsupportedEncoding { .. }
+            );
+            if skippable {
+                eprintln!(
+                    "  warning: skipping ELF patch for '{}': {e} (unpatched, left as built)",
+                    path.display()
+                );
+                continue;
+            }
+            return Err(ZexError::Other(format!(
                 "failed to patch ELF interpreter/RPATH for '{}': {e}",
                 path.display()
-            ))
-        })?;
+            )));
+        }
     }
     Ok(())
 }
