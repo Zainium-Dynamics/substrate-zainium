@@ -73,11 +73,24 @@ pub fn pack(
         } else {
             crate::core::elfpatch::USERLAND_LIB_TARGET
         };
+
+        // The kernel silently clears setuid/setgid on ANY write to a
+        // file carrying those bits, unless the writer holds CAP_FSETID
+        // -- which our own build/patch steps never do. shebang_fix and
+        // elfpatch both rewrite file content in place, so a recipe's own
+        // `chmod 4755` in package() (which already ran, before pack()
+        // was ever invoked) would get silently thrown away right here
+        // even though nothing about this looks like an error. Snapshot
+        // every mode first, restore it after both patches run.
+        let saved_modes = snapshot_modes(&payload_dir)?;
+
         // shebang_fix must run before enforce_layout_policy below --
         // otherwise a #!/usr/bin/env script gets blocked by the /usr
         // scan before it ever gets the chance to be rewritten.
         crate::core::shebang_fix::patch_payload_dir(&payload_dir)?;
         crate::core::elfpatch::patch_payload_dir(&payload_dir, &manifest.install.paths, lib_target)?;
+
+        restore_modes(&saved_modes)?;
     }
 
     let (layout_result, content_result) = root_guard::enforce_layout_policy(source_dir)?;
@@ -89,7 +102,7 @@ pub fn pack(
         ));
     }
 
-    let mut payload_files: Vec<(String, Vec<u8>, Option<String>)> = Vec::new();
+    let mut payload_files: Vec<(String, Vec<u8>, Option<String>, u32)> = Vec::new();
     let mut uncompressed = 0u64;
 
     for entry in walkdir::WalkDir::new(&payload_dir)
@@ -107,18 +120,26 @@ pub fn pack(
             let target = std::fs::read_link(entry.path())?
                 .to_string_lossy()
                 .to_string();
-            payload_files.push((rel, Vec::new(), Some(target)));
+            payload_files.push((rel, Vec::new(), Some(target), 0));
             continue;
         }
         if !ft.is_file() { continue; }
         let bytes = std::fs::read(entry.path())?;
         uncompressed += bytes.len() as u64;
-        payload_files.push((rel, bytes, None));
+        // Real on-disk mode (incl. setuid/setgid/sticky), not a hardcoded
+        // 0o755 -- a recipe's own `chmod 4755` on a setuid binary was
+        // silently getting thrown away here otherwise, no error, no
+        // warning, the bit just never made it into the .zex.
+        use std::os::unix::fs::PermissionsExt;
+        let mode = entry.metadata()
+            .map(|m| m.permissions().mode() & 0o7777)
+            .unwrap_or(0o755);
+        payload_files.push((rel, bytes, None, mode));
     }
 
     payload_files.sort_by(|a, b| a.0.cmp(&b.0));
     let mut payload_hasher = blake3::Hasher::new();
-    for (path, bytes, target) in &payload_files {
+    for (path, bytes, target, _mode) in &payload_files {
         payload_hasher.update(path.as_bytes());
         match target {
             Some(t) => payload_hasher.update(t.as_bytes()),
@@ -148,10 +169,10 @@ pub fn pack(
         append_bytes(&mut builder, "manifest.toml", manifest_toml.as_bytes(), 0o644)?;
         append_bytes(&mut builder, "signature.b3", sig_b3.as_bytes(), 0o644)?;
 
-        for (rel_path, bytes, target) in &payload_files {
+        for (rel_path, bytes, target, mode) in &payload_files {
             match target {
                 Some(t) => append_symlink(&mut builder, rel_path, t)?,
-                None => append_bytes(&mut builder, rel_path, bytes, 0o755)?,
+                None => append_bytes(&mut builder, rel_path, bytes, *mode)?,
             }
         }
 
@@ -187,6 +208,36 @@ pub fn pack(
         uncompressed_size: uncompressed,
         report,
     })
+}
+
+// See the call site in pack() -- shebang_fix/elfpatch write file content
+// in place, which makes the kernel drop setuid/setgid bits as a side
+// effect; these two snapshot/restore that around both passes.
+fn snapshot_modes(payload_dir: &Path) -> Result<Vec<(std::path::PathBuf, u32)>> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut modes = Vec::new();
+    for entry in walkdir::WalkDir::new(payload_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if let Ok(meta) = entry.metadata() {
+            modes.push((entry.path().to_path_buf(), meta.permissions().mode() & 0o7777));
+        }
+    }
+    Ok(modes)
+}
+
+fn restore_modes(modes: &[(std::path::PathBuf, u32)]) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    for (path, mode) in modes {
+        if path.is_file() {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(*mode))?;
+        }
+    }
+    Ok(())
 }
 
 fn append_bytes<W: Write>(

@@ -1,6 +1,6 @@
 [package]
 name = "substrate-zainium"
-version = "2.3.1"
+version = "2.3.2"
 
 edition = "2024"
 description = "Standalone package builder — pack, unpack, verify, inspect"
