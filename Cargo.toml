@@ -1,7 +1,6 @@
 [package]
 name = "substrate-zainium"
-version = "2.3.2"
-
+version = "2.3.3"
 edition = "2024"
 description = "Standalone package builder — pack, unpack, verify, inspect"
 license = "MIT"
@@ -33,6 +32,7 @@ env_logger    = "0.11"
 chrono        = { version = "0.4",  features = ["serde"] }
 sha2 = "0.11.0"
 oxipatch      = "0.1.0"
+libc          = "0.2"
 
 [profile.release]
 opt-level = 3

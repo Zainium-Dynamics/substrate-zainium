@@ -1044,6 +1044,7 @@ dependencies = [
  "ed25519-dalek",
  "env_logger",
  "hex",
+ "libc",
  "log",
  "oxipatch",
  "rand",
