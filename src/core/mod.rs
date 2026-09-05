@@ -1,5 +1,6 @@
 pub mod elfpatch;
 pub mod manifest;
+pub mod mode_policy;
 pub mod packer;
 pub mod report;
 pub mod shebang_fix;

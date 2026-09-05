@@ -134,6 +134,7 @@ pub fn pack(
         let mode = entry.metadata()
             .map(|m| m.permissions().mode() & 0o7777)
             .unwrap_or(0o755);
+        let mode = crate::core::mode_policy::normalize(&rel, mode);
         payload_files.push((rel, bytes, None, mode));
     }
 

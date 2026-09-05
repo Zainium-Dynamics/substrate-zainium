@@ -55,7 +55,12 @@ pub fn unpack(
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&safe_path, std::fs::Permissions::from_mode(*mode))
+            // Same data/config-file policy as packer.rs, applied again
+            // here so it also repairs a .zex built before this existed --
+            // *mode is whatever the archive says, not necessarily already
+            // corrected.
+            let mode = crate::core::mode_policy::normalize(rel, *mode);
+            std::fs::set_permissions(&safe_path, std::fs::Permissions::from_mode(mode))
                 .map_err(ZexError::Io)?;
 
             // setuid/setgid (04000/02000) is meaningless -- actively
@@ -69,7 +74,7 @@ pub fn unpack(
             // the only place it can ever happen. Silently skipped (not
             // an error) when unpack runs unprivileged, e.g. local/dev
             // testing -- real image assembly runs as root.
-            if *mode & 0o6000 != 0 {
+            if mode & 0o6000 != 0 {
                 let c_path = std::ffi::CString::new(safe_path.as_os_str().as_encoded_bytes())
                     .map_err(|e| ZexError::Other(format!("invalid path for chown: {e}")))?;
                 // SAFETY: c_path is a valid NUL-terminated C string for
