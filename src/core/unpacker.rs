@@ -80,9 +80,9 @@ pub fn unpack(
                 let rc = unsafe { libc::chown(c_path.as_ptr(), 0, 0) };
                 if rc != 0 {
                     let err = std::io::Error::last_os_error();
-                    eprintln!(
-                        "warning: could not chown {} to root:root ({err}) -- setuid/setgid bit is inert until this is fixed (run unpack as root, or apply chown at final image assembly)",
-                        safe_path.display()
+                    crate::ui::display::warn_kv(
+                        "chown",
+                        &format!("{rel:?} not root:root ({err}), setuid inert until fixed"),
                     );
                 }
             }
