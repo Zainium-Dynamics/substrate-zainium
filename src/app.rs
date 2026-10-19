@@ -16,6 +16,17 @@ fn fresh_ephemeral_signer() -> Signer128 {
 }
 
 pub fn run(raw_args: Vec<String>) {
+    match raw_args.get(1).map(String::as_str) {
+        None | Some("-h" | "--help" | "help") => {
+            display::help();
+            return;
+        }
+        Some("-V" | "--version" | "version") => {
+            println!("substrate {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        _ => {}
+    }
     let cli = Cli::parse_from(&raw_args);
 
     let result = match cli.command {

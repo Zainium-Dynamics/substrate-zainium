@@ -46,3 +46,32 @@ pub fn error(msg: &str) {
 pub fn section(msg: &str) {
     println!("\n{G}{msg}{RST}");
 }
+
+pub fn help() {
+    println!();
+    println!("  {BLD}{B}substrate{RST} — {BLD}Zainium Package Builder & Verifier{RST}");
+    println!();
+    println!("  {BLD}Usage:{RST}  substrate <command> [options]");
+    println!();
+    println!("  {Y}Packages:{RST}");
+    println!("    {G}pack{RST}    {DIM}<dir> -v <ver>{RST}  Build a signed .zex from <dir> {DIM}(manifest.toml + payload/){RST}");
+    println!("    {G}unpack{RST}  {DIM}<file.zex>{RST}      Verify and extract a package {DIM}(-o <dir>){RST}");
+    println!("    {G}verify{RST}  {DIM}<file.zex>{RST}      Check signature and integrity");
+    println!("    {G}inspect{RST} {DIM}<file.zex>{RST}      Show package information");
+    println!();
+    println!("  {Y}Keys:{RST}");
+    println!("    {G}keygen{RST}                  Generate an Ed25519 signing key {DIM}(-o <file>, --force){RST}");
+    println!();
+    println!("  {Y}Pack Options:{RST}");
+    println!("    {G}-v, --version{RST} {DIM}<ver>{RST}     Package version {DIM}(required){RST}");
+    println!("    {G}-o, --output{RST} {DIM}<file>{RST}     Output file {DIM}(default: <dir>-<ver>.zex){RST}");
+    println!("    {G}--description{RST} {DIM}<text>{RST}    Package description");
+    println!("    {G}--features{RST} {DIM}<a,b>{RST}        Comma-separated features");
+    println!("    {G}--requires-syshub{RST} {DIM}<ver>{RST} Syshub release the package needs");
+    println!("    {G}--install-root{RST} {DIM}<path>{RST}   Root for a generated manifest {DIM}(default: /overlayer/zexlib){RST}");
+    println!();
+    println!("  Run {G}substrate <command> --help{RST} for a command's own options.");
+    println!();
+    println!("  Zainium OS — {B}archive.zainiumdynamics.tech{RST}");
+    println!();
+}

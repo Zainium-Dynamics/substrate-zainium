@@ -12,14 +12,18 @@ pub struct Cli {
 pub enum Command {
     /// Create a secure .zex package from a directory.
     Pack {
+        /// Package directory (manifest.toml + payload/).
         directory: PathBuf,
 
+        /// Package version.
         #[arg(short = 'v', long = "version")]
         version: String,
 
+        /// Package description.
         #[arg(long, default_value = "")]
         description: String,
 
+        /// Comma-separated features.
         #[arg(long, value_delimiter = ',', default_value = "")]
         features: Vec<String>,
 
@@ -28,10 +32,10 @@ pub enum Command {
         requires_syshub: Option<String>,
 
         /// Installation root path for auto-generated manifests.
-
         #[arg(long, default_value = "/overlayer/zexlib")]
         install_root: String,
 
+        /// Output file (default: <dir>-<version>.zex).
         #[arg(short = 'o', long = "output")]
         output: Option<PathBuf>,
     },
@@ -40,9 +44,11 @@ pub enum Command {
     Unpack {
         file: PathBuf,
 
+        /// Destination directory.
         #[arg(short = 'o', long = "output")]
         output: Option<PathBuf>,
 
+        /// Verify only, extract nothing.
         #[arg(long, default_value_t = false)]
         verify_only: bool,
     },

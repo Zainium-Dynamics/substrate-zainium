@@ -26,6 +26,9 @@ pub fn unpack(
     std::fs::create_dir_all(dest_dir)?;
 
     let mut count = 0usize;
+    // links this package created; nothing may be written through one of them
+    // (payload/lib -> /etc, then payload/lib/passwd), so every file stays in dest_dir
+    let mut links: std::collections::HashSet<std::path::PathBuf> = Default::default();
     for (archive_path, bytes, mode, target) in &parsed.payload_files {
         let rel = archive_path
             .strip_prefix("payload/")
@@ -36,6 +39,12 @@ pub fn unpack(
             })?;
 
         let safe_path = paths::safe_join(dest_dir, rel)?;
+        if let Some(link) = safe_path.ancestors().skip(1).find(|a| links.contains(*a)) {
+            return Err(ZexError::InvalidFormat(format!(
+                "{archive_path} is under the package's own symlink {}",
+                link.display()
+            )));
+        }
         if let Some(parent) = safe_path.parent() {
             std::fs::create_dir_all(parent).map_err(ZexError::Io)?;
         }
@@ -47,10 +56,15 @@ pub fn unpack(
                 std::os::unix::fs::symlink(link_target, &safe_path)
                     .map_err(ZexError::Io)?;
             }
+            links.insert(safe_path);
             count += 1;
             continue;
         }
 
+        // a file replaces a link at its path instead of writing through it
+        if std::fs::symlink_metadata(&safe_path).is_ok_and(|m| m.file_type().is_symlink()) {
+            std::fs::remove_file(&safe_path).map_err(ZexError::Io)?;
+        }
         std::fs::write(&safe_path, bytes).map_err(ZexError::Io)?;
         #[cfg(unix)]
         {
