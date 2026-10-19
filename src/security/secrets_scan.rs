@@ -80,6 +80,11 @@ fn is_real_assignment(caps: &regex::Captures) -> bool {
     if val.eq_ignore_ascii_case(ident) {
         return false;
     }
+    // 'pwd': 'pwd#module-pwd' : a docs index entry pointing at the module of that name.
+    let anchor = format!("{}#", ident.to_ascii_lowercase());
+    if val.to_ascii_lowercase().starts_with(&anchor) {
+        return false;
+    }
     // "secret": "\u3299\ufe0f" : a table of unicode escapes (emoji names).
     if is_unicode_escapes_only(val) {
         return false;
@@ -236,6 +241,7 @@ mod tests {
     #[test]
     fn real_secrets_still_blocked() {
         assert!(scan_one("a.py", "password = \"hunter2hunter2\"\n").is_blocked());
+        assert!(scan_one("h.py", "'password': 'hunter2hunter2'\n").is_blocked());
         assert!(scan_one("b.json", "{\"password\": \"hunter2hunter2\"}\n").is_blocked());
         assert!(scan_one("c.go", "myPassword := \"abc12345\"\n").is_blocked() || scan_one("c2.go", "myPassword = \"abc12345\"\n").is_blocked());
         assert!(scan_one("d.sh", "export API_KEY=\"abcdef123456\"\n").is_blocked());
@@ -247,6 +253,7 @@ mod tests {
     fn go_false_positives_are_clean() {
         assert!(!scan_one("a.go", "cmd.Env = append(os.Environ(), \"PWD=\"+cmd.Dir, \"GOROOT=\"+root)\n").is_blocked());
         assert!(!scan_one("b.go", "\tencodeUserPassword:   \"encodeUserPassword\",\n").is_blocked());
+        assert!(!scan_one("e.py", "    'pwd': 'pwd#module-pwd',\n    'spwd': 'spwd#module-spwd',\n").is_blocked());
         assert!(!scan_one("d.go", "\t\"secret\":                               \"\\u3299\\ufe0f\",\n").is_blocked());
         assert!(!scan_one("c.go", "\tCERT_FIND_HAS_PRIVATE_KEY             = (CERT_COMPARE_HAS_PRIVATE_KEY << CERT_COMPARE_SHIFT)\n").is_blocked());
     }
