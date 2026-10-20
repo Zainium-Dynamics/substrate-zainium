@@ -21,6 +21,8 @@
 
 const DATA_EXTENSIONS: &[&str] = &[
     "service", "socket", "target", "timer", "mount", "path",
+    "slice", "scope", "swap", "automount", "preset",
+    "link", "network", "netdev", "rules", "hwdb", "policy", "xml", "desktop",
     "toml", "conf", "md", "txt", "json", "yaml", "yml",
 ];
 
@@ -57,6 +59,22 @@ mod tests {
         assert_eq!(normalize("payload/etc/dbus-1/system.conf", 0o755), 0o644);
         assert_eq!(normalize("payload/lib/systemd/system/dbus.service", 0o755), 0o644);
         assert_eq!(normalize("payload/etc/greetd/config.toml", 0o750), 0o644);
+    }
+
+    #[test]
+    fn forces_udev_networkd_polkit_and_dbus_data_to_0644() {
+        for p in [
+            "payload/lib/systemd/network/80-container-ve.link",
+            "payload/lib/systemd/network/80-vm-vt.network",
+            "payload/lib/udev/rules.d/60-input-id.rules",
+            "payload/lib/udev/hwdb.d/60-keyboard.hwdb",
+            "payload/lib/systemd/system-preset/90-systemd.preset",
+            "payload/share/polkit-1/actions/org.freedesktop.login1.policy",
+            "payload/share/dbus-1/interfaces/org.freedesktop.UPower.xml",
+            "payload/lib/systemd/system/user.slice",
+        ] {
+            assert_eq!(normalize(p, 0o755), 0o644, "{p}");
+        }
     }
 
     #[test]
