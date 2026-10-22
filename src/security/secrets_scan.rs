@@ -34,7 +34,7 @@ impl SecretsScanReport {
 }
 
 const PATTERNS: &[(&str, &str)] = &[
-    ("PEM private key block",         r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"),
+    ("PEM private key block",         r"-----BEGIN (RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----(?:\s*$|\\n|\\r)"),
     ("AWS access key ID",             r"AKIA[0-9A-Z]{16}"),
     ("AWS secret access key",
         r#"(?i)aws[_\-\. ]?secret[_\-\. ]?access[_\-\. ]?key\s*[=:]\s*['"][A-Za-z0-9/+=]{40}"#),
@@ -247,6 +247,14 @@ mod tests {
         assert!(scan_one("d.sh", "export API_KEY=\"abcdef123456\"\n").is_blocked());
         assert!(scan_one("e.env", "DB_PRIVATE_KEY=MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n").is_blocked());
         assert!(scan_one("f.txt", "-----BEGIN RSA PRIVATE KEY-----\n").is_blocked());
+        assert!(scan_one("g.rs", "const K: &str = \"-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBg\\n\";\n").is_blocked());
+    }
+
+    #[test]
+    fn mime_magic_headers_are_clean() {
+        assert!(!scan_one("m.xml", "      <match type=\"string\" value=\"-----BEGIN PGP PRIVATE KEY BLOCK-----\" offset=\"0\"/>\n").is_blocked());
+        assert!(!scan_one("n.xml", "      <match type=\"string\" value=\"-----BEGIN PRIVATE KEY-----\" offset=\"0\"/>\n").is_blocked());
+        assert!(!scan_one("o.xml", "      <match type=\"string\" offset=\"0\" value=\"-----BEGIN OPENSSH PRIVATE KEY-----\"/>\n").is_blocked());
     }
 
     #[test]
