@@ -51,6 +51,9 @@ pub struct PackageMeta {
     pub provides:      Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requires_syshub: Option<String>,
+    /// Kernel-tier packages: the syshub package carrying this kernel's modules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modules: Option<String>,
 
     #[serde(default)]
     pub native: bool,
@@ -65,6 +68,10 @@ pub struct InstallMap {
 
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub _syshub: bool,
+
+    /// Kernel tier: booted from the ESP, published to kernel/x86_64 (`zex kernel`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub _kernel: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -140,7 +147,7 @@ impl ZexTomlManifest {
                 maintainer:  opts.builder.clone(),
                 ..Default::default()
             },
-            install: InstallMap { paths: install_paths, _syshub: false },
+            install: InstallMap { paths: install_paths, _syshub: false, _kernel: false },
             remove:  RemoveMap::default(),
             editions: None,
             hooks:   HookMap::default(),
@@ -149,6 +156,11 @@ impl ZexTomlManifest {
     }
 
     pub fn validate_paths(&self) -> Result<()> {
+        if self.install._syshub && self.install._kernel {
+            return Err(ZexError::LayoutViolation(
+                "[install] sets both _syshub and _kernel: a package belongs to one tier".into()
+            ));
+        }
         for (key, dest) in &self.install.paths {
             if key == "_syshub" { continue; }
             if !dest.starts_with("/overlayer/") {
