@@ -1,4 +1,5 @@
 pub mod elfpatch;
+pub mod fsverity;
 pub mod manifest;
 pub mod mode_policy;
 pub mod packer;

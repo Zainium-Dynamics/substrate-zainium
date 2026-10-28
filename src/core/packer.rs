@@ -139,6 +139,11 @@ pub fn pack(
     }
 
     payload_files.sort_by(|a, b| a.0.cmp(&b.0));
+    manifest.fsverity = payload_files
+        .iter()
+        .filter(|(_, _, target, _)| target.is_none())
+        .map(|(path, bytes, _, _)| (path.clone(), crate::core::fsverity::digest_hex(bytes)))
+        .collect();
     let mut payload_hasher = blake3::Hasher::new();
     for (path, bytes, target, _mode) in &payload_files {
         payload_hasher.update(path.as_bytes());

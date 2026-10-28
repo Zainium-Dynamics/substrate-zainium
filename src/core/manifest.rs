@@ -2,7 +2,7 @@
 
 
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::Path};
+use std::{collections::{BTreeMap, HashMap}, path::Path};
 use crate::error::{Result, ZexError};
 use crate::core::packer::PackOptions;
 
@@ -17,6 +17,10 @@ pub struct ZexTomlManifest {
     pub hooks:    HookMap,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub depends:  HashMap<String, Vec<String>>,
+    /// fs-verity digest (SHA-256, 4096-byte blocks) of every regular file, by payload path —
+    /// what FS_IOC_MEASURE_VERITY reports for the installed file once fs-verity is on.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fsverity: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -152,6 +156,7 @@ impl ZexTomlManifest {
             editions: None,
             hooks:   HookMap::default(),
             depends: HashMap::new(),
+            fsverity: BTreeMap::new(),
         })
     }
 
