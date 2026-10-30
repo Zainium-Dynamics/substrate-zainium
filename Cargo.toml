@@ -7,7 +7,7 @@ license = "MIT"
 authors = ["Ali Zain <alizain@zainiumdynamics.tech>"]
 repository = "https://gitlab.com/alizain.arch/substrate"
 homepage = "https://gitlab.com/alizain.arch/substrate"
-readme = "README.md"
+readme = "README"
 
 [[bin]]
 name = "substrate"

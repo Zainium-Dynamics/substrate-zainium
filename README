@@ -1,0 +1,51 @@
+substrate
+=========
+
+substrate turns a build output directory into a signed .zex package, and
+checks, inspects and unpacks such packages. It is the package builder of
+Zainium OS, by Zainium Dynamics.
+
+  - Every pack run signs the package with a fresh Ed25519 key pair and
+    keeps only the public half in it, so there is no long-lived signing key
+    to leak.
+  - Every package carries a BLAKE3 hash over its payload, taken in a fixed
+    order, and the fs-verity digest of each file.
+  - Every build runs a security pass (layout policy, hard-coded secrets)
+    that stops the build when it fails.
+
+
+Install
+-------
+
+  cargo install substrate-zainium
+
+The program is called substrate.
+
+
+Use
+---
+
+  substrate pack -v 2.0.0 ./my-package -o my-package-2.0.0.zex
+  substrate verify  my-package-2.0.0.zex          check the signature
+  substrate unpack  my-package-2.0.0.zex -o out   extract the payload
+  substrate inspect my-package-2.0.0.zex          show the manifest
+
+./my-package holds a manifest.toml (the package's metadata) and a payload/
+directory (the files to install).
+
+
+Format
+------
+
+  package-2.0.0.zex      zexc-compressed tar (magic ZEX1)
+  ├── manifest.toml      metadata, install map, BLAKE3 hash and signature
+  ├── signature.b3       BLAKE3 of the manifest and the payload hash
+  └── payload/           the files, laid out as the install map says
+
+Symlinks in payload/ stay symlinks; the hash covers their target.
+
+
+License
+-------
+
+MIT.
