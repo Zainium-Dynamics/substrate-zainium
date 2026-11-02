@@ -32,8 +32,7 @@ pub fn normalize_archive_path(raw: &str) -> Result<String> {
 
 // Check if top-level directory matches usr.
 pub fn references_usr_merge(normalized_path: &str) -> bool {
-    normalized_path == "usr"
-        || normalized_path.starts_with("usr/")
+    normalized_path == "usr" || normalized_path.starts_with("usr/")
 }
 
 // Safe join for extraction root.
@@ -62,7 +61,10 @@ mod tests {
 
     #[test]
     fn normalizes_leading_slash_and_dot() {
-        assert_eq!(normalize_archive_path("/usr/bin/foo").unwrap(), "usr/bin/foo");
+        assert_eq!(
+            normalize_archive_path("/usr/bin/foo").unwrap(),
+            "usr/bin/foo"
+        );
         assert_eq!(normalize_archive_path("./bin/foo").unwrap(), "bin/foo");
     }
 }

@@ -1,6 +1,5 @@
 // Layout policy enforcement.
 
-
 use crate::error::{Result, ZexError};
 use crate::utils::paths::{normalize_archive_path, references_usr_merge};
 use serde::{Deserialize, Serialize};
@@ -39,7 +38,6 @@ pub enum CheckOutcome {
     Failed,
 }
 
-
 pub fn check_path(raw_path: &str) -> Result<String> {
     let normalized = normalize_archive_path(raw_path)?;
 
@@ -56,7 +54,10 @@ pub fn check_path(raw_path: &str) -> Result<String> {
 pub fn check_directory_layout(root: &Path) -> Result<LayoutCheckResult> {
     let mut rejected = Vec::new();
 
-    for entry in walkdir::WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         let rel = entry
             .path()
             .strip_prefix(root)
@@ -88,7 +89,10 @@ pub fn scan_content_for_usr_refs(root: &Path) -> Result<ContentScanResult> {
     let mut files_scanned = 0usize;
     let mut matches = Vec::new();
 
-    for entry in walkdir::WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -99,7 +103,9 @@ pub fn scan_content_for_usr_refs(root: &Path) -> Result<ContentScanResult> {
             .to_string_lossy()
             .to_string();
 
-        let Ok(bytes) = std::fs::read(path) else { continue };
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
         files_scanned += 1;
 
         // Valid UTF-8 (scripts, configs, anything text -- no extension
@@ -150,12 +156,9 @@ pub fn scan_content_for_usr_refs(root: &Path) -> Result<ContentScanResult> {
 
 // Enforce layout policy across package directory structure and file contents.
 
-pub fn enforce_layout_policy(
-    root: &Path,
-) -> Result<(LayoutCheckResult, ContentScanResult)> {
+pub fn enforce_layout_policy(root: &Path) -> Result<(LayoutCheckResult, ContentScanResult)> {
     let payload_dir = root.join("payload");
     let layout = check_directory_layout(&payload_dir)?;
     let content = scan_content_for_usr_refs(root)?;
     Ok((layout, content))
 }
-

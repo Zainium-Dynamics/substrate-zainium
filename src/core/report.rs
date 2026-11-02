@@ -35,4 +35,3 @@ impl SecurityReport {
         serde_json::to_string_pretty(self)
     }
 }
-

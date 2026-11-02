@@ -1,6 +1,5 @@
 // Source code secret scanning.
 
-
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -34,19 +33,28 @@ impl SecretsScanReport {
 }
 
 const PATTERNS: &[(&str, &str)] = &[
-    ("PEM private key block",         r"-----BEGIN (RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----(?:\s*$|\\n|\\r)"),
-    ("AWS access key ID",             r"AKIA[0-9A-Z]{16}"),
-    ("AWS secret access key",
-        r#"(?i)aws[_\-\. ]?secret[_\-\. ]?access[_\-\. ]?key\s*[=:]\s*['"][A-Za-z0-9/+=]{40}"#),
-    ("GitHub token (ghp_)",           r"ghp_[A-Za-z0-9]{36}"),
-    ("GitHub token (ghs_)",           r"ghs_[A-Za-z0-9]{36}"),
-    ("GitHub token (github_pat)",     r"github_pat_[A-Za-z0-9_]{82}"),
-    ("Stripe secret key",             r"sk_live_[A-Za-z0-9]{24}"),
-    ("Stripe test key",               r"sk_test_[A-Za-z0-9]{24}"),
-    ("bearer token literal",
-        r"(?i)bearer\s+[A-Za-z0-9\-_\.=]{20,}"),
-    ("dotenv private key",
-        r#"(?i)^\s*(?:export\s+)?[A-Za-z0-9_]*PRIVATE_KEY\s*=\s*['"]?[A-Za-z0-9+/=_\\\-]{20,}"#),
+    (
+        "PEM private key block",
+        r"-----BEGIN (RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----(?:\s*$|\\n|\\r)",
+    ),
+    ("AWS access key ID", r"AKIA[0-9A-Z]{16}"),
+    (
+        "AWS secret access key",
+        r#"(?i)aws[_\-\. ]?secret[_\-\. ]?access[_\-\. ]?key\s*[=:]\s*['"][A-Za-z0-9/+=]{40}"#,
+    ),
+    ("GitHub token (ghp_)", r"ghp_[A-Za-z0-9]{36}"),
+    ("GitHub token (ghs_)", r"ghs_[A-Za-z0-9]{36}"),
+    ("GitHub token (github_pat)", r"github_pat_[A-Za-z0-9_]{82}"),
+    ("Stripe secret key", r"sk_live_[A-Za-z0-9]{24}"),
+    ("Stripe test key", r"sk_test_[A-Za-z0-9]{24}"),
+    (
+        "bearer token literal",
+        r"(?i)bearer\s+[A-Za-z0-9\-_\.=]{20,}",
+    ),
+    (
+        "dotenv private key",
+        r#"(?i)^\s*(?:export\s+)?[A-Za-z0-9_]*PRIVATE_KEY\s*=\s*['"]?[A-Za-z0-9+/=_\\\-]{20,}"#,
+    ),
 ];
 
 // Assignment-style secrets. Matched separately so a hit can be rejected when
@@ -54,8 +62,16 @@ const PATTERNS: &[(&str, &str)] = &[
 // identifier that is named after the keyword.
 const ASSIGNMENTS: &[(&str, &str, usize)] = &[
     ("hardcoded password assignment", "password|passwd|pwd", 6),
-    ("hardcoded secret assignment", "secret|api_secret|client_secret", 8),
-    ("hardcoded api_key assignment", r"api[_\-]?key|apikey|access[_\-]?token", 8),
+    (
+        "hardcoded secret assignment",
+        "secret|api_secret|client_secret",
+        8,
+    ),
+    (
+        "hardcoded api_key assignment",
+        r"api[_\-]?key|apikey|access[_\-]?token",
+        8,
+    ),
 ];
 
 fn compile_assignment(keywords: &str, min_len: usize) -> Option<regex::Regex> {
@@ -114,11 +130,32 @@ fn is_unicode_escapes_only(val: &str) -> bool {
     true
 }
 
-
 const TEXT_EXTENSIONS: &[&str] = &[
-    "rs", "c", "cpp", "h", "hpp", "py", "rb", "go", "js", "ts",
-    "sh", "bash", "zsh", "toml", "yaml", "yml", "json", "ini", "cfg",
-    "env", "conf", "service", "txt", "xml", "properties",
+    "rs",
+    "c",
+    "cpp",
+    "h",
+    "hpp",
+    "py",
+    "rb",
+    "go",
+    "js",
+    "ts",
+    "sh",
+    "bash",
+    "zsh",
+    "toml",
+    "yaml",
+    "yml",
+    "json",
+    "ini",
+    "cfg",
+    "env",
+    "conf",
+    "service",
+    "txt",
+    "xml",
+    "properties",
 ];
 const TEXT_FILENAMES: &[&str] = &[".env", "Makefile", "Dockerfile"];
 
@@ -143,9 +180,7 @@ fn redact(line: &str, max_len: usize) -> String {
 pub fn scan_secrets(root: &Path) -> SecretsScanReport {
     let compiled: Vec<(&str, regex::Regex)> = PATTERNS
         .iter()
-        .filter_map(|(label, pat)| {
-            regex::Regex::new(pat).ok().map(|r| (*label, r))
-        })
+        .filter_map(|(label, pat)| regex::Regex::new(pat).ok().map(|r| (*label, r)))
         .collect();
 
     let assignments: Vec<(&str, regex::Regex)> = ASSIGNMENTS
@@ -222,14 +257,17 @@ pub fn scan_secrets(root: &Path) -> SecretsScanReport {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
 
     fn scan_one(name: &str, body: &str) -> SecretsScanReport {
-        let dir = std::env::temp_dir().join(format!("secrets_scan_{}_{}", std::process::id(), name.replace('.', "_")));
+        let dir = std::env::temp_dir().join(format!(
+            "secrets_scan_{}_{}",
+            std::process::id(),
+            name.replace('.', "_")
+        ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join(name), body).unwrap();
@@ -243,11 +281,22 @@ mod tests {
         assert!(scan_one("a.py", "password = \"hunter2hunter2\"\n").is_blocked());
         assert!(scan_one("h.py", "'password': 'hunter2hunter2'\n").is_blocked());
         assert!(scan_one("b.json", "{\"password\": \"hunter2hunter2\"}\n").is_blocked());
-        assert!(scan_one("c.go", "myPassword := \"abc12345\"\n").is_blocked() || scan_one("c2.go", "myPassword = \"abc12345\"\n").is_blocked());
+        assert!(
+            scan_one("c.go", "myPassword := \"abc12345\"\n").is_blocked()
+                || scan_one("c2.go", "myPassword = \"abc12345\"\n").is_blocked()
+        );
         assert!(scan_one("d.sh", "export API_KEY=\"abcdef123456\"\n").is_blocked());
-        assert!(scan_one("e.env", "DB_PRIVATE_KEY=MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n").is_blocked());
+        assert!(
+            scan_one("e.env", "DB_PRIVATE_KEY=MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n").is_blocked()
+        );
         assert!(scan_one("f.txt", "-----BEGIN RSA PRIVATE KEY-----\n").is_blocked());
-        assert!(scan_one("g.rs", "const K: &str = \"-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBg\\n\";\n").is_blocked());
+        assert!(
+            scan_one(
+                "g.rs",
+                "const K: &str = \"-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBg\\n\";\n"
+            )
+            .is_blocked()
+        );
     }
 
     #[test]
@@ -259,10 +308,30 @@ mod tests {
 
     #[test]
     fn go_false_positives_are_clean() {
-        assert!(!scan_one("a.go", "cmd.Env = append(os.Environ(), \"PWD=\"+cmd.Dir, \"GOROOT=\"+root)\n").is_blocked());
-        assert!(!scan_one("b.go", "\tencodeUserPassword:   \"encodeUserPassword\",\n").is_blocked());
-        assert!(!scan_one("e.py", "    'pwd': 'pwd#module-pwd',\n    'spwd': 'spwd#module-spwd',\n").is_blocked());
-        assert!(!scan_one("d.go", "\t\"secret\":                               \"\\u3299\\ufe0f\",\n").is_blocked());
+        assert!(
+            !scan_one(
+                "a.go",
+                "cmd.Env = append(os.Environ(), \"PWD=\"+cmd.Dir, \"GOROOT=\"+root)\n"
+            )
+            .is_blocked()
+        );
+        assert!(
+            !scan_one("b.go", "\tencodeUserPassword:   \"encodeUserPassword\",\n").is_blocked()
+        );
+        assert!(
+            !scan_one(
+                "e.py",
+                "    'pwd': 'pwd#module-pwd',\n    'spwd': 'spwd#module-spwd',\n"
+            )
+            .is_blocked()
+        );
+        assert!(
+            !scan_one(
+                "d.go",
+                "\t\"secret\":                               \"\\u3299\\ufe0f\",\n"
+            )
+            .is_blocked()
+        );
         assert!(!scan_one("c.go", "\tCERT_FIND_HAS_PRIVATE_KEY             = (CERT_COMPARE_HAS_PRIVATE_KEY << CERT_COMPARE_SHIFT)\n").is_blocked());
     }
 }

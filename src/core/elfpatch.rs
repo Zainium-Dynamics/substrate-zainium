@@ -1,6 +1,5 @@
 // ELF dynamic linker and RPATH patching.
 
-
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -24,15 +23,25 @@ fn is_elf(path: &Path) -> bool {
 }
 
 fn is_replaceable_lib_entry(entry: &str) -> bool {
-    entry == "/usr/lib" || entry == "/lib" || entry == "/usr/lib64" || entry == "/lib64"
-        || entry.starts_with("/usr/lib/") || entry.starts_with("/lib/")
-        || entry.starts_with("/usr/lib64/") || entry.starts_with("/lib64/")
+    entry == "/usr/lib"
+        || entry == "/lib"
+        || entry == "/usr/lib64"
+        || entry == "/lib64"
+        || entry.starts_with("/usr/lib/")
+        || entry.starts_with("/lib/")
+        || entry.starts_with("/usr/lib64/")
+        || entry.starts_with("/lib64/")
         || entry.starts_with("$ORIGIN")
-        || entry == SYSHUB_LIB_TARGET || entry.starts_with(&format!("{SYSHUB_LIB_TARGET}/"))
-        || entry == USERLAND_LIB_TARGET || entry.starts_with(&format!("{USERLAND_LIB_TARGET}/"))
+        || entry == SYSHUB_LIB_TARGET
+        || entry.starts_with(&format!("{SYSHUB_LIB_TARGET}/"))
+        || entry == USERLAND_LIB_TARGET
+        || entry.starts_with(&format!("{USERLAND_LIB_TARGET}/"))
 }
 
-fn resolve_install_dest(payload_rel: &Path, install_map: &HashMap<String, String>) -> Option<PathBuf> {
+fn resolve_install_dest(
+    payload_rel: &Path,
+    install_map: &HashMap<String, String>,
+) -> Option<PathBuf> {
     let mut components = payload_rel.components();
     let top = components.next()?.as_os_str().to_str()?;
     let dest_root = install_map.get(top)?;
@@ -65,10 +74,29 @@ fn origin_relative(from_dir: &Path, to_dir: &Path) -> String {
     rpath
 }
 
-fn rebuild_rpath(existing: &str, lib_rpath: &str) -> String {
+/// A private library directory below a lib dir (`/overlayer/syshub/lib/gvfs`): it keeps pointing
+/// at that directory, made relative to where the file is installed.
+fn lib_subdir(entry: &str) -> bool {
+    [SYSHUB_LIB_TARGET, USERLAND_LIB_TARGET].iter().any(|lib| {
+        entry
+            .strip_prefix(lib)
+            .is_some_and(|rest| rest.len() > 1 && rest.starts_with('/'))
+    })
+}
+
+fn rebuild_rpath(existing: &str, lib_rpath: &str, from_dir: Option<&Path>) -> String {
     let mut out: Vec<String> = Vec::new();
     for entry in existing.split(':').filter(|e| !e.is_empty()) {
-        let mapped = if is_replaceable_lib_entry(entry) { lib_rpath } else { entry };
+        let subdir;
+        let mapped = match from_dir {
+            Some(from) if lib_subdir(entry) => {
+                subdir = origin_relative(from, Path::new(entry));
+                subdir.as_str()
+            }
+            None if lib_subdir(entry) => entry,
+            _ if is_replaceable_lib_entry(entry) => lib_rpath,
+            _ => entry,
+        };
         if !out.iter().any(|e| e == mapped) {
             out.push(mapped.to_string());
         }
@@ -79,7 +107,11 @@ fn rebuild_rpath(existing: &str, lib_rpath: &str) -> String {
     out.join(":")
 }
 
-fn patch_one(path: &Path, lib_rpath: &str) -> std::result::Result<(), oxipatch::Error> {
+fn patch_one(
+    path: &Path,
+    lib_rpath: &str,
+    from_dir: Option<&Path>,
+) -> std::result::Result<(), oxipatch::Error> {
     let mut f = ElfFile::open(path)?;
 
     let has_interp = f.interpreter()?.is_some();
@@ -94,7 +126,7 @@ fn patch_one(path: &Path, lib_rpath: &str) -> std::result::Result<(), oxipatch::
     }
 
     let existing = f.rpath()?.unwrap_or_default();
-    let new_rpath = rebuild_rpath(&existing, lib_rpath);
+    let new_rpath = rebuild_rpath(&existing, lib_rpath, from_dir);
     f.set_rpath(&new_rpath, true)?;
 
     f.commit()?;
@@ -125,15 +157,14 @@ pub fn patch_payload_dir(
         }
 
         let payload_rel = path.strip_prefix(payload_dir).unwrap_or(path);
-        let lib_rpath = match resolve_install_dest(payload_rel, install_map) {
-            Some(dest) => {
-                let from_dir = dest.parent().unwrap_or(&dest).to_path_buf();
-                origin_relative(&from_dir, lib_target_path)
-            }
+        let from_dir = resolve_install_dest(payload_rel, install_map)
+            .map(|dest| dest.parent().unwrap_or(&dest).to_path_buf());
+        let lib_rpath = match &from_dir {
+            Some(from) => origin_relative(from, lib_target_path),
             None => lib_target.to_string(),
         };
 
-        if let Err(e) = patch_one(path, &lib_rpath) {
+        if let Err(e) = patch_one(path, &lib_rpath, from_dir.as_deref()) {
             // These variants can only come from ElfFile::open()/parse() —
             // the very first thing patch_one does, before any write is
             // attempted — so the file on disk is guaranteed untouched.
@@ -169,3 +200,36 @@ pub fn patch_payload_dir(
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn private_lib_subdir_survives() {
+        // gvfs: lib/gio/modules/libgvfsdbus.so needs lib/gvfs/libgvfscommon.so
+        let from = Path::new("/overlayer/syshub/lib/gio/modules");
+        let got = rebuild_rpath(
+            "/overlayer/syshub/lib/gvfs:/overlayer/syshub/lib",
+            "$ORIGIN/../..",
+            Some(from),
+        );
+        assert_eq!(got, "$ORIGIN/../../gvfs:$ORIGIN/../..");
+    }
+
+    #[test]
+    fn fhs_and_lib_entries_still_collapse() {
+        let from = Path::new("/overlayer/syshub/bin");
+        let got = rebuild_rpath(
+            "/usr/lib:/overlayer/syshub/lib:$ORIGIN/../lib",
+            "$ORIGIN/../lib",
+            Some(from),
+        );
+        assert_eq!(got, "$ORIGIN/../lib");
+    }
+
+    #[test]
+    fn without_a_destination_the_subdir_is_left_absolute() {
+        let got = rebuild_rpath("/overlayer/syshub/lib/gvfs", "/overlayer/syshub/lib", None);
+        assert_eq!(got, "/overlayer/syshub/lib/gvfs:/overlayer/syshub/lib");
+    }
+}

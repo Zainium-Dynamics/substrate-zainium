@@ -39,7 +39,10 @@ fn fix_one(path: &Path) -> Result<bool> {
         return Ok(false);
     }
 
-    let nl = bytes.iter().position(|&b| b == b'\n').unwrap_or(bytes.len());
+    let nl = bytes
+        .iter()
+        .position(|&b| b == b'\n')
+        .unwrap_or(bytes.len());
     let first_line = match std::str::from_utf8(&bytes[..nl]) {
         Ok(s) => s,
         Err(_) => return Ok(false), // not a text shebang we can parse
@@ -120,10 +123,14 @@ mod tests {
             std::fs::create_dir_all(&dir).unwrap();
             Self(dir)
         }
-        fn path(&self) -> &Path { &self.0 }
+        fn path(&self) -> &Path {
+            &self.0
+        }
     }
     impl Drop for TempDir {
-        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
 
     fn write_exec(dir: &Path, name: &str, content: &str) -> std::path::PathBuf {
@@ -156,7 +163,11 @@ mod tests {
     #[test]
     fn leaves_already_correct_alone() {
         let dir = TempDir::new("already-ok");
-        let f = write_exec(dir.path(), "script.sh", "#!/overlayer/syshub/bin/sh\necho hi\n");
+        let f = write_exec(
+            dir.path(),
+            "script.sh",
+            "#!/overlayer/syshub/bin/sh\necho hi\n",
+        );
         assert!(!fix_one(&f).unwrap());
     }
 

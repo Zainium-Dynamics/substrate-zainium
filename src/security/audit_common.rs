@@ -1,6 +1,5 @@
 // Shared audit primitives and report structures.
 
-
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -31,7 +30,11 @@ pub struct AuditToolResult {
 }
 
 impl AuditToolResult {
-    pub fn skipped(tool: impl Into<String>, command: impl Into<String>, reason: impl Into<String>) -> Self {
+    pub fn skipped(
+        tool: impl Into<String>,
+        command: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
         AuditToolResult {
             tool: tool.into(),
             command: command.into(),
@@ -91,4 +94,3 @@ pub fn tool_on_path(cmd: &str) -> bool {
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
-

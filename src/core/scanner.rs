@@ -1,6 +1,5 @@
 // Structural integrity checks for .zex packages.
 
-
 use crate::core::manifest::FileEntry;
 use crate::error::{Result, ZexError};
 use serde::{Deserialize, Serialize};
@@ -72,7 +71,10 @@ pub fn verify_manifest_integrity(
 pub fn audit_permissions(root: &Path) -> Result<PermissionAuditResult> {
     let mut setuid_files = Vec::new();
 
-    for entry in walkdir::WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -97,4 +99,3 @@ pub fn audit_permissions(root: &Path) -> Result<PermissionAuditResult> {
         description: "Permission audit completed".to_string(),
     })
 }
-

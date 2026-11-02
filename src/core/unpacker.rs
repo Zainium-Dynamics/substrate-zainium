@@ -30,13 +30,9 @@ pub fn unpack(
     // (payload/lib -> /etc, then payload/lib/passwd), so every file stays in dest_dir
     let mut links: std::collections::HashSet<std::path::PathBuf> = Default::default();
     for (archive_path, bytes, mode, target) in &parsed.payload_files {
-        let rel = archive_path
-            .strip_prefix("payload/")
-            .ok_or_else(|| {
-                ZexError::InvalidFormat(format!(
-                    "invalid payload path: {archive_path}"
-                ))
-            })?;
+        let rel = archive_path.strip_prefix("payload/").ok_or_else(|| {
+            ZexError::InvalidFormat(format!("invalid payload path: {archive_path}"))
+        })?;
 
         let safe_path = paths::safe_join(dest_dir, rel)?;
         if let Some(link) = safe_path.ancestors().skip(1).find(|a| links.contains(*a)) {
@@ -53,8 +49,7 @@ pub fn unpack(
             #[cfg(unix)]
             {
                 let _ = std::fs::remove_file(&safe_path);
-                std::os::unix::fs::symlink(link_target, &safe_path)
-                    .map_err(ZexError::Io)?;
+                std::os::unix::fs::symlink(link_target, &safe_path).map_err(ZexError::Io)?;
             }
             links.insert(safe_path);
             count += 1;

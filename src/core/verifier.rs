@@ -1,6 +1,5 @@
 // Package verification logic for .zex packages.
 
-
 use crate::core::manifest::ZexTomlManifest;
 use crate::core::report::SecurityReport;
 use crate::error::{Result, ZexError};
@@ -11,10 +10,10 @@ use std::io::Read;
 
 // Parsed contents of a .zex package.
 pub struct ParsedZex {
-    pub manifest:      ZexTomlManifest,
-    pub manifest_raw:  String,
-    pub signature:     SignatureBlock,
-    pub report:        SecurityReport,
+    pub manifest: ZexTomlManifest,
+    pub manifest_raw: String,
+    pub signature: SignatureBlock,
+    pub report: SecurityReport,
     pub payload_files: Vec<(String, Vec<u8>, u32, Option<String>)>,
 }
 
@@ -27,30 +26,33 @@ pub fn parse(data: Vec<u8>) -> Result<ParsedZex> {
     let mut archive = tar::Archive::new(std::io::Cursor::new(&dec));
 
     let mut manifest_toml: Option<String> = None;
-    let mut sig_b3_file:   Option<String> = None;
+    let mut sig_b3_file: Option<String> = None;
     let mut payload_files: Vec<(String, Vec<u8>, u32, Option<String>)> = Vec::new();
 
-    for entry in archive.entries()
+    for entry in archive
+        .entries()
         .map_err(|e| ZexError::InvalidFormat(format!("tar read failed: {e}")))?
     {
-        let mut entry = entry
-            .map_err(|e| ZexError::InvalidFormat(format!("tar entry error: {e}")))?;
+        let mut entry =
+            entry.map_err(|e| ZexError::InvalidFormat(format!("tar entry error: {e}")))?;
 
-        let path = entry.path()
+        let path = entry
+            .path()
             .map_err(|e| ZexError::InvalidFormat(format!("tar path error: {e}")))?
             .to_string_lossy()
             .to_string();
 
         if path.contains("../") || path.contains("/..") {
-            return Err(ZexError::InvalidFormat(
-                format!("path traversal detected: {path}")
-            ));
+            return Err(ZexError::InvalidFormat(format!(
+                "path traversal detected: {path}"
+            )));
         }
 
         let mode = entry.header().mode().unwrap_or(0o644);
         let is_symlink = entry.header().entry_type().is_symlink();
         let link_target = if is_symlink {
-            entry.link_name()
+            entry
+                .link_name()
                 .map_err(ZexError::Io)?
                 .map(|p| p.to_string_lossy().to_string())
         } else {
@@ -58,8 +60,7 @@ pub fn parse(data: Vec<u8>) -> Result<ParsedZex> {
         };
 
         let mut bytes = Vec::new();
-        entry.read_to_end(&mut bytes)
-            .map_err(|e| ZexError::Io(e))?;
+        entry.read_to_end(&mut bytes).map_err(|e| ZexError::Io(e))?;
 
         match path.as_str() {
             "manifest.toml" => {
@@ -86,15 +87,14 @@ pub fn parse(data: Vec<u8>) -> Result<ParsedZex> {
         ZexError::InvalidFormat("signature.b3 missing from package archive".into())
     })?;
 
-    let manifest: ZexTomlManifest = toml::from_str(&manifest_str).map_err(|e| {
-        ZexError::InvalidFormat(format!("manifest.toml parse error: {e}"))
-    })?;
+    let manifest: ZexTomlManifest = toml::from_str(&manifest_str)
+        .map_err(|e| ZexError::InvalidFormat(format!("manifest.toml parse error: {e}")))?;
 
     payload_files.sort_by(|a, b| a.0.cmp(&b.0));
 
     let signed_by = manifest.package.maintainer.clone();
     let blake3_digest = manifest.package.blake3.clone().unwrap_or_default();
-    let ed25519_sig   = manifest.package.ed25519_sig.clone();
+    let ed25519_sig = manifest.package.ed25519_sig.clone();
     let signature = SignatureBlock {
         signed_by,
         blake3_digest,
@@ -132,8 +132,7 @@ pub fn verify_signature(parsed: &ParsedZex, public_key: &VerifyingKey) -> Result
     }
 
     if let Some(ref sig_hex) = parsed.signature.ed25519_signature {
-        let sig_bytes = hex::decode(sig_hex)
-            .map_err(|e| ZexError::Other(e.to_string()))?;
+        let sig_bytes = hex::decode(sig_hex).map_err(|e| ZexError::Other(e.to_string()))?;
         let sig = ed25519_dalek::Signature::from_slice(&sig_bytes)
             .map_err(|e| ZexError::Other(e.to_string()))?;
         if public_key
@@ -155,4 +154,3 @@ pub fn verify_signature(parsed: &ParsedZex, public_key: &VerifyingKey) -> Result
 
     Ok(true)
 }
-

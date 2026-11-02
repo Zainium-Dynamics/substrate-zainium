@@ -1,6 +1,5 @@
 // Package archive packer implementation for .zex packages.
 
-
 use crate::core::manifest::ZexTomlManifest;
 use crate::core::report::SecurityReport;
 use crate::core::scanner;
@@ -11,22 +10,21 @@ use crate::security::signer::Signer128;
 use crate::utils::compressor;
 use std::{io::Write, path::Path};
 
-
 pub struct PackOptions {
-    pub version:         String,
-    pub description:     String,
-    pub features:        Vec<String>,
+    pub version: String,
+    pub description: String,
+    pub features: Vec<String>,
     pub requires_syshub: Option<String>,
-    pub builder:         String,
-    pub zstd_level:      i32,
-    pub install_root:    String,
+    pub builder: String,
+    pub zstd_level: i32,
+    pub install_root: String,
 }
 
 pub struct PackResult {
-    pub output_path:       std::path::PathBuf,
-    pub compressed_size:   u64,
+    pub output_path: std::path::PathBuf,
+    pub compressed_size: u64,
     pub uncompressed_size: u64,
-    pub report:            SecurityReport,
+    pub report: SecurityReport,
 }
 
 // Pack source_dir into a canonical .zex package at output_path.
@@ -48,9 +46,8 @@ pub fn pack(
     let manifest_src = source_dir.join("manifest.toml");
     let mut manifest: ZexTomlManifest = if manifest_src.exists() {
         let raw = std::fs::read_to_string(&manifest_src)?;
-        toml::from_str(&raw).map_err(|e| {
-            crate::error::ZexError::Other(format!("manifest.toml parse error: {e}"))
-        })?
+        toml::from_str(&raw)
+            .map_err(|e| crate::error::ZexError::Other(format!("manifest.toml parse error: {e}")))?
     } else {
         ZexTomlManifest::generate(source_dir, opts)?
     };
@@ -88,7 +85,11 @@ pub fn pack(
         // otherwise a #!/usr/bin/env script gets blocked by the /usr
         // scan before it ever gets the chance to be rewritten.
         crate::core::shebang_fix::patch_payload_dir(&payload_dir)?;
-        crate::core::elfpatch::patch_payload_dir(&payload_dir, &manifest.install.paths, lib_target)?;
+        crate::core::elfpatch::patch_payload_dir(
+            &payload_dir,
+            &manifest.install.paths,
+            lib_target,
+        )?;
 
         restore_modes(&saved_modes)?;
     }
@@ -111,7 +112,8 @@ pub fn pack(
         .filter_map(|e| e.ok())
     {
         let ft = entry.file_type();
-        let rel = entry.path()
+        let rel = entry
+            .path()
             .strip_prefix(source_dir)
             .unwrap_or(entry.path())
             .to_string_lossy()
@@ -123,7 +125,9 @@ pub fn pack(
             payload_files.push((rel, Vec::new(), Some(target), 0));
             continue;
         }
-        if !ft.is_file() { continue; }
+        if !ft.is_file() {
+            continue;
+        }
         let bytes = std::fs::read(entry.path())?;
         uncompressed += bytes.len() as u64;
         // Real on-disk mode (incl. setuid/setgid/sticky), not a hardcoded
@@ -131,7 +135,8 @@ pub fn pack(
         // silently getting thrown away here otherwise, no error, no
         // warning, the bit just never made it into the .zex.
         use std::os::unix::fs::PermissionsExt;
-        let mode = entry.metadata()
+        let mode = entry
+            .metadata()
             .map(|m| m.permissions().mode() & 0o7777)
             .unwrap_or(0o755);
         let mode = crate::core::mode_policy::normalize(&rel, mode);
@@ -155,13 +160,12 @@ pub fn pack(
     let payload_blake3 = payload_hasher.finalize().to_hex().to_string();
 
     let sig_block = signer.sign(payload_blake3.as_bytes(), &opts.builder)?;
-    manifest.package.blake3         = Some(payload_blake3.clone());
-    manifest.package.ed25519_sig    = sig_block.ed25519_signature.clone();
+    manifest.package.blake3 = Some(payload_blake3.clone());
+    manifest.package.ed25519_sig = sig_block.ed25519_signature.clone();
     manifest.package.ed25519_pubkey = Some(signer.verifying_key_hex());
 
-    let manifest_toml = toml::to_string_pretty(&manifest).map_err(|e| {
-        crate::error::ZexError::Other(format!("manifest serialize error: {e}"))
-    })?;
+    let manifest_toml = toml::to_string_pretty(&manifest)
+        .map_err(|e| crate::error::ZexError::Other(format!("manifest serialize error: {e}")))?;
 
     let mut sig_hasher = blake3::Hasher::new();
     sig_hasher.update(manifest_toml.as_bytes());
@@ -172,7 +176,12 @@ pub fn pack(
     {
         let mut builder = tar::Builder::new(&mut tar_buf);
 
-        append_bytes(&mut builder, "manifest.toml", manifest_toml.as_bytes(), 0o644)?;
+        append_bytes(
+            &mut builder,
+            "manifest.toml",
+            manifest_toml.as_bytes(),
+            0o644,
+        )?;
         append_bytes(&mut builder, "signature.b3", sig_b3.as_bytes(), 0o644)?;
 
         for (rel_path, bytes, target, mode) in &payload_files {
@@ -207,9 +216,8 @@ pub fn pack(
         secrets,
     );
 
-
     Ok(PackResult {
-        output_path:       output_path.to_path_buf(),
+        output_path: output_path.to_path_buf(),
         compressed_size,
         uncompressed_size: uncompressed,
         report,
@@ -230,7 +238,10 @@ fn snapshot_modes(payload_dir: &Path) -> Result<Vec<(std::path::PathBuf, u32)>> 
             continue;
         }
         if let Ok(meta) = entry.metadata() {
-            modes.push((entry.path().to_path_buf(), meta.permissions().mode() & 0o7777));
+            modes.push((
+                entry.path().to_path_buf(),
+                meta.permissions().mode() & 0o7777,
+            ));
         }
     }
     Ok(modes)
@@ -257,21 +268,19 @@ fn append_bytes<W: Write>(
     header.set_mode(mode);
     header.set_mtime(0);
     header.set_cksum();
-    builder.append_data(&mut header, path, data)
+    builder
+        .append_data(&mut header, path, data)
         .map_err(crate::error::ZexError::Io)
 }
 
-fn append_symlink<W: Write>(
-    builder: &mut tar::Builder<W>,
-    path: &str,
-    target: &str,
-) -> Result<()> {
+fn append_symlink<W: Write>(builder: &mut tar::Builder<W>, path: &str, target: &str) -> Result<()> {
     let mut header = tar::Header::new_gnu();
     header.set_entry_type(tar::EntryType::Symlink);
     header.set_size(0);
     header.set_mode(0o777);
     header.set_mtime(0);
-    builder.append_link(&mut header, path, target)
+    builder
+        .append_link(&mut header, path, target)
         .map_err(crate::error::ZexError::Io)
 }
 
@@ -282,8 +291,8 @@ pub fn manifest_name_from_path(output_path: &Path) -> String {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("package")
-        .split('_').next()
+        .split('_')
+        .next()
         .unwrap_or("package")
         .to_string()
 }
-

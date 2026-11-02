@@ -4,7 +4,10 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 
-use zexc::{compress as zexc_compress, decompress as zexc_decompress, CompressOptions, CompressionMode, StreamDecoder};
+use zexc::{
+    CompressOptions, CompressionMode, StreamDecoder, compress as zexc_compress,
+    decompress as zexc_decompress,
+};
 
 pub const MAGIC: &[u8; 4] = b"ZEX1";
 
@@ -36,5 +39,3 @@ pub fn open_decoder(path: &Path) -> io::Result<StreamDecoder<File>> {
     let file = File::open(path)?;
     Ok(StreamDecoder::new(file))
 }
-
-

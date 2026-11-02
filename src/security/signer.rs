@@ -5,12 +5,12 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignatureBlock {
-    pub signed_by:         String,
-    pub blake3_digest:     String,
-    pub sha512_digest:     String,
+    pub signed_by: String,
+    pub blake3_digest: String,
+    pub sha512_digest: String,
     pub ed25519_signature: Option<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub sig_b3:            String,
+    pub sig_b3: String,
 }
 
 pub struct Signer128 {
@@ -47,11 +47,7 @@ impl Signer128 {
 
 // Verify signature block against payload digest and public key.
 
-pub fn verify(
-    data: &[u8],
-    block: &SignatureBlock,
-    public_key: &VerifyingKey,
-) -> Result<bool> {
+pub fn verify(data: &[u8], block: &SignatureBlock, public_key: &VerifyingKey) -> Result<bool> {
     let expected_blake3 = String::from_utf8_lossy(data);
     if expected_blake3 != block.blake3_digest {
         return Ok(false);
@@ -62,8 +58,8 @@ pub fn verify(
     }
 
     if let Some(sig_hex) = &block.ed25519_signature {
-        let sig_bytes = hex::decode(sig_hex)
-            .map_err(|e| crate::error::ZexError::Other(e.to_string()))?;
+        let sig_bytes =
+            hex::decode(sig_hex).map_err(|e| crate::error::ZexError::Other(e.to_string()))?;
         let sig = Signature::from_slice(&sig_bytes)
             .map_err(|e| crate::error::ZexError::Other(e.to_string()))?;
         if public_key
@@ -76,4 +72,3 @@ pub fn verify(
 
     Ok(true)
 }
-

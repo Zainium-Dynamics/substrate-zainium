@@ -75,13 +75,37 @@ mod tests {
     }
 
     const KERNEL_VECTORS: &[(usize, &str)] = &[
-        (0, "3d248ca542a24fc62d1c43b916eae5016878e2533c88238480b26128a1f1af95"),
-        (1, "b803429503d95915829b29fdbc8bbad142f3abfd11b1cadf5526582e685c0551"),
-        (4095, "5f4953aad672b0188023d6cd6fbce9d09508eb7dad165b6298ce0086bc1e72db"),
-        (4096, "13e9b8848ae484a36acb3f3cac0ceb2f7601e96633d15c92f9bd3dd44e492157"),
-        (4097, "b0d074abef4d544404facfab6ba242f6a8ccbde90f1325cd286f3c8aa8d0f8aa"),
-        (524288, "d82861203d50ae9b60948504a704f35f5118bd229aeb1a22d6dae47b1767c4c4"),
-        (524289, "4dc6905041c9c4ee73e13b53f63f5d289c46da359b664a965ead7f8cc4d799d4"),
-        (300000, "9ba81fdc4f8dfd3b0d13b883f7f73f07e6c0c006c6ef81a3bc024508c8a57e3f"),
+        (
+            0,
+            "3d248ca542a24fc62d1c43b916eae5016878e2533c88238480b26128a1f1af95",
+        ),
+        (
+            1,
+            "b803429503d95915829b29fdbc8bbad142f3abfd11b1cadf5526582e685c0551",
+        ),
+        (
+            4095,
+            "5f4953aad672b0188023d6cd6fbce9d09508eb7dad165b6298ce0086bc1e72db",
+        ),
+        (
+            4096,
+            "13e9b8848ae484a36acb3f3cac0ceb2f7601e96633d15c92f9bd3dd44e492157",
+        ),
+        (
+            4097,
+            "b0d074abef4d544404facfab6ba242f6a8ccbde90f1325cd286f3c8aa8d0f8aa",
+        ),
+        (
+            524288,
+            "d82861203d50ae9b60948504a704f35f5118bd229aeb1a22d6dae47b1767c4c4",
+        ),
+        (
+            524289,
+            "4dc6905041c9c4ee73e13b53f63f5d289c46da359b664a965ead7f8cc4d799d4",
+        ),
+        (
+            300000,
+            "9ba81fdc4f8dfd3b0d13b883f7f73f07e6c0c006c6ef81a3bc024508c8a57e3f",
+        ),
     ];
 }

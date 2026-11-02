@@ -20,10 +20,32 @@
 // already-built .zex carrying a bad mode from before this existed.
 
 const DATA_EXTENSIONS: &[&str] = &[
-    "service", "socket", "target", "timer", "mount", "path",
-    "slice", "scope", "swap", "automount", "preset",
-    "link", "network", "netdev", "rules", "hwdb", "policy", "xml", "desktop",
-    "toml", "conf", "md", "txt", "json", "yaml", "yml",
+    "service",
+    "socket",
+    "target",
+    "timer",
+    "mount",
+    "path",
+    "slice",
+    "scope",
+    "swap",
+    "automount",
+    "preset",
+    "link",
+    "network",
+    "netdev",
+    "rules",
+    "hwdb",
+    "policy",
+    "xml",
+    "desktop",
+    "toml",
+    "conf",
+    "md",
+    "txt",
+    "json",
+    "yaml",
+    "yml",
 ];
 
 const EXEC_DIRS: &[&str] = &["bin", "sbin", "libexec"];
@@ -57,7 +79,10 @@ mod tests {
     #[test]
     fn forces_config_files_to_0644() {
         assert_eq!(normalize("payload/etc/dbus-1/system.conf", 0o755), 0o644);
-        assert_eq!(normalize("payload/lib/systemd/system/dbus.service", 0o755), 0o644);
+        assert_eq!(
+            normalize("payload/lib/systemd/system/dbus.service", 0o755),
+            0o644
+        );
         assert_eq!(normalize("payload/etc/greetd/config.toml", 0o750), 0o644);
     }
 
